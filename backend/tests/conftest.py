@@ -187,6 +187,8 @@ def server():
     """Starts the real API on port 8001 (stricter lock-out so the test is quick)."""
     env = os.environ.copy()
     env["LOGIN_MAX_FAILED_ATTEMPTS"] = str(LOCKOUT_AFTER)
+    env["SESSION_CACHE_SECONDS"] = "0"  # these tests edit sessions straight in the database -> check it on every request
+    # (the in-memory session cache has its own tests in test_p1_session_cache.py, on a second server)
     log_path = BACKEND_DIR / "tests" / "_server.log"
     log = open(log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(

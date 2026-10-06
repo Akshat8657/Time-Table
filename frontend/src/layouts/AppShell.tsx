@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
+import { Suspense, useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { CalendarCheck, ChevronDown, LogOut, Menu, TriangleAlert, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Button } from '../components/Button'
 import { Logo } from '../components/Logo'
+import { Skeleton } from '../components/Panel'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { ToastProvider } from '../components/Toast'
 import { useConsent } from '../consent/ConsentProvider'
 import { COOKIE_NAMES, storeConvenience } from '../lib/cookies'
 import { initials } from '../lib/format'
-import { findItem, NAV, ROLE_LABEL, type NavItem } from '../lib/nav'
+import { findItem, NAV, ROLE_LABEL, ROLE_PREFIX, type NavItem } from '../lib/nav'
+import { SchoolScopeProvider } from '../lib/scope'
+import { TermProvider, useTerm } from '../lib/term'
 
 function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
   const Icon = item.icon
@@ -114,7 +118,52 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   )
 }
 
+/** The running term, always visible: "Odd 2026". Admin and HOD can click it to change the term. */
+function TermChip() {
+  const { user } = useAuth()
+  const { active, ready } = useTerm()
+  if (!user || !ready) return null
+  const canChange = user.role !== 'teacher'
+  const target = `${ROLE_PREFIX[user.role]}/active-term`
+
+  const body = active ? (
+    <>
+      <CalendarCheck className="size-4 text-brand-text" aria-hidden="true" />
+      <span className="hidden text-xs text-muted sm:inline">Active term</span>
+      <span className="text-[13px] font-semibold text-ink">{active.name}</span>
+    </>
+  ) : (
+    <>
+      <TriangleAlert className="size-4 text-warning" aria-hidden="true" />
+      <span className="text-[13px] font-semibold text-warning">{canChange ? 'No active term - set it' : 'No active term yet'}</span>
+    </>
+  )
+  const style = `flex items-center gap-2 rounded-full border px-3 py-1.5 transition-colors ${
+    active ? 'border-line bg-surface-2' : 'border-warning-line bg-warning-soft'
+  }`
+  return canChange ? (
+    <Link to={target} className={`${style} hover:bg-hover`} title="Open the Active Term screen">
+      {body}
+    </Link>
+  ) : (
+    <div className={style}>{body}</div>
+  )
+}
+
 export function AppShell() {
+  // one set of "who am I working on / which term is running / small messages" for every screen below
+  return (
+    <ToastProvider>
+      <TermProvider>
+        <SchoolScopeProvider>
+          <ShellLayout />
+        </SchoolScopeProvider>
+      </TermProvider>
+    </ToastProvider>
+  )
+}
+
+function ShellLayout() {
   const { user } = useAuth()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -188,12 +237,23 @@ export function AppShell() {
               {user.school_name ? ` · ${user.school_name}` : ' · All schools'}
             </p>
           </div>
+          <TermChip />
           <ThemeToggle />
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <div className="mx-auto w-full max-w-6xl">
-            <Outlet />
+            <Suspense
+              fallback={
+                <div className="space-y-4" aria-busy="true" aria-label="Loading the screen">
+                  <Skeleton className="h-10 w-64" />
+                  <Skeleton className="h-24" />
+                  <Skeleton className="h-64" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

@@ -49,7 +49,7 @@ async def authenticate(request: Request, *, allow_pending_password: bool, touch:
     settings = get_settings()
     claims = await request.app.state.verifier.verify(token)  # genuine, unexpired, right project
 
-    row = await sessions.load(claims.session_id)
+    row = await sessions.load_cached(settings, claims.session_id)
     if row is None or str(row["user_id"]) != claims.user_id:
         raise ApiError(
             401, "INVALID_SESSION", "Your session has ended. Please sign in again.", clear_session_cookie=True

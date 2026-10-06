@@ -1,7 +1,9 @@
 """College setup: schools, courses and semesters (plan Sections 4, 5.1, 6).  Admin edits; HOD only reads his own school."""
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import time
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -27,26 +29,28 @@ async def tree(school_id: str | None = None, user: CurrentUser = Depends(require
     else:
         school_ids = [r["id"] for r in await db.fetch("select id from public.schools order by name")]
 
-    schools = await db.fetch(
-        """
-        select s.id, s.name, s.is_active,
-               (select count(*) from public.profiles p where p.school_id = s.id and p.role = 'hod' and p.is_active)     as hods,
-               (select count(*) from public.profiles p where p.school_id = s.id and p.role = 'teacher' and p.is_active) as teachers
-        from public.schools s where s.id = any($1::uuid[]) order by s.name
-        """,
-        school_ids,
+    schools, courses, sems, term = await asyncio.gather(
+        db.fetch(
+            """
+            select s.id, s.name, s.is_active,
+                   array(select p.full_name from public.profiles p where p.school_id = s.id and p.role = 'hod' and p.is_active order by p.full_name) as hod_names,
+                   (select count(*) from public.profiles p where p.school_id = s.id and p.role = 'hod' and p.is_active)     as hods,
+                   (select count(*) from public.profiles p where p.school_id = s.id and p.role = 'teacher' and p.is_active) as teachers
+            from public.schools s where s.id = any($1::uuid[]) order by s.name
+            """,
+            school_ids,
+        ),
+        db.fetch(
+            "select id, school_id, name, code, num_semesters, is_active from public.courses "
+            "where school_id = any($1::uuid[]) order by name",
+            school_ids,
+        ),
+        db.fetch(
+            "select id, course_id, number from public.semesters where school_id = any($1::uuid[]) order by number",
+            school_ids,
+        ),
+        term_svc.active_term(),
     )
-    courses = await db.fetch(
-        "select id, school_id, name, code, num_semesters, is_active from public.courses "
-        "where school_id = any($1::uuid[]) order by name",
-        school_ids,
-    )
-    sems = await db.fetch(
-        "select id, course_id, number, early_release_time from public.semesters "
-        "where school_id = any($1::uuid[]) order by number",
-        school_ids,
-    )
-    term = await term_svc.active_term()
     sems_by_course: dict[Any, list[dict]] = {}
     for sm in sems:
         sems_by_course.setdefault(sm["course_id"], []).append(
@@ -76,6 +80,7 @@ async def tree(school_id: str | None = None, user: CurrentUser = Depends(require
                 "name": s["name"],
                 "is_active": s["is_active"],
                 "hods": s["hods"],
+                "hod_names": list(s["hod_names"]),
                 "teachers": s["teachers"],
                 "courses": courses_by_school.get(s["id"], []),
             }
@@ -110,6 +115,8 @@ class SchoolPatch(BaseModel):
 async def create_school(body: SchoolIn, user: CurrentUser = Depends(require_roles("admin"))) -> dict:
     async with db.transaction() as conn:
         row = await conn.fetchrow("insert into public.schools (name) values ($1) returning id, name, is_active", body.name)
+        # a new school starts with the real college lunch (13:10-13:40); its HOD can change it on the School Timing screen
+        await conn.execute("insert into public.school_timing (school_id, lunch_start, lunch_end) values ($1, $2, $3)", row["id"], time(13, 10), time(13, 40))
         await audit.record(conn, user, "create", "school", row["id"], f"Created school '{row['name']}'", school_id=row["id"])
     return {"id": str(row["id"]), "name": row["name"], "is_active": row["is_active"]}
 

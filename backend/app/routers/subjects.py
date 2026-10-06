@@ -22,13 +22,15 @@ LIST_SQL = """
 select s.id, s.school_id, s.semester_id, s.name, s.code, s.credits, s.semester_hours, s.is_lab, s.is_elective,
        s.special_kind, s.elective_group_id, g.name as group_name,
        sm.number, c.id as course_id, c.name as course_name,
-       a.id as assignment_id, a.teacher_id, p.full_name as teacher_name
+       a.id as assignment_id, a.teacher_id, p.full_name as teacher_name,
+       a.co_teacher_id, cp.full_name as co_teacher_name
 from public.subjects s
 join public.semesters sm on sm.id = s.semester_id
 join public.courses c on c.id = sm.course_id
 left join public.elective_groups g on g.id = s.elective_group_id
 left join public.assignments a on a.subject_id = s.id and a.term_id = $2
 left join public.profiles p on p.id = a.teacher_id
+left join public.profiles cp on cp.id = a.co_teacher_id
 where s.school_id = $1
 """
 
@@ -53,6 +55,8 @@ def subject_out(r: asyncpg.Record) -> dict[str, Any]:
         "assignment_id": str(r["assignment_id"]) if r["assignment_id"] else None,
         "teacher_id": str(r["teacher_id"]) if r["teacher_id"] else None,
         "teacher_name": r["teacher_name"],
+        "co_teacher_id": str(r["co_teacher_id"]) if r["co_teacher_id"] else None,
+        "co_teacher_name": r["co_teacher_name"],
     }
 
 
@@ -80,9 +84,9 @@ async def group_warnings(conn_or_none: Any, group_id: uuid.UUID | None) -> list[
 
 
 def subject_warnings(is_lab: bool, credits: int, special_kind: str | None) -> list[str]:
+    """Hints shown after saving. Labs never get a credits-vs-hours warning: a lab is typically 1 credit yet always
+    one 2-period block per week (plan V8)."""
     out = []
-    if is_lab and credits % 2 == 1:
-        out.append("Lab sessions are always 2 lectures back-to-back, so an even number of credits fits best.")
     if special_kind:
         out.append(
             f"{special_kind} lectures come only from the fixed double blocks (Fixed Slots screen) - credits do not decide them."

@@ -7,12 +7,20 @@ interface State<T> {
   loading: boolean
 }
 
-/** Loads one API route when the screen opens. */
-export function useApi<T>(path: string) {
-  const [state, setState] = useState<State<T>>({ data: null, error: null, loading: true })
+/**
+ * Loads one API route when the screen opens (and again when the path changes or reload() is called).
+ * Pass null to wait (for example until a school has been chosen).
+ * The old answer stays on screen while a newer one is loading, so lists never flash empty.
+ */
+export function useApi<T>(path: string | null) {
+  const [state, setState] = useState<State<T>>({ data: null, error: null, loading: path !== null })
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (path === null) {
+      setState({ data: null, error: null, loading: false })
+      return
+    }
     const controller = new AbortController()
     setState((s) => ({ ...s, loading: true, error: null }))
     api<T>(path, { signal: controller.signal }).then(

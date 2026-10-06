@@ -277,6 +277,7 @@ async def change_password(
 
     # 3) first-login flag off, every other device signed out
     await db.execute("update public.profiles set must_change_password = false where id = $1", uuid.UUID(user.id), retry=True)
+    sessions.invalidate_user(user.id)  # the remembered copy still says "must change password"
     await sessions.revoke_others(user.id, user.session_id, "password_changed")
     state.pw_limiter.success(user.id)
     log.info("Password changed for %s", user.email)

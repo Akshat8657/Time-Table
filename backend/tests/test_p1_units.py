@@ -12,7 +12,7 @@ from app.security.passwords import generate_temp_password, validate_new_password
 from app.services import excel
 from app.services.grid import build_grid
 from app.services.terms import parity_matches
-from app.services.timing import slot_problems
+from app.services.timing import DayRule, class_days, slot_notes, slot_problems
 from app.validation import normalize_email, normalize_phone
 
 
@@ -40,6 +40,16 @@ def test_lunch_is_skipped_and_never_overlapped():
     for p in g.periods:  # no period overlaps lunch
         assert p.end <= 13 * 60 or p.start >= 13 * 60 + 45
     assert any("lunch" in n for n in g.notes)  # the 12:10-13:00 gap is explained
+
+
+def test_real_college_timing_gives_exactly_the_six_real_periods():
+    # college 10:00-16:50, 1 hour lectures, 5 min breaks, lunch 13:10-13:40 (the real School of IT timetable)
+    g = build_grid(time(10), time(16, 50), 60, 5, time(13, 10), time(13, 40))
+    assert hm(g) == [
+        (1, "10:00", "11:00"), (2, "11:05", "12:05"), (3, "12:10", "13:10"),
+        (4, "13:40", "14:40"), (5, "14:45", "15:45"), (6, "15:50", "16:50"),
+    ]
+    assert g.notes == []                      # nothing wasted: P3 ends exactly when lunch starts, P6 exactly at closing
 
 
 def test_lunch_that_fits_between_lectures_wastes_nothing():
@@ -79,8 +89,15 @@ def test_bad_input_is_refused():
 def test_continuity_for_double_blocks():
     g = build_grid(time(10), time(17), 60, 5, time(13), time(13, 45))
     assert g.is_continuous(1, 2) and g.is_continuous(3, 3)
-    assert not g.is_continuous(2, 2)  # period 2 -> 3 is separated by lunch
+    assert not g.is_continuous(2, 2)  # period 2 -> 3 is separated by lunch (strictly continuous = no lunch in between)
     assert not g.is_continuous(5, 2)  # runs off the end of the day
+
+
+def test_lunch_inside_a_block():
+    g = build_grid(time(10), time(16, 50), 60, 5, time(13, 10), time(13, 40))
+    assert g.lunch_inside(3, 2) == (13 * 60 + 10, 13 * 60 + 40)     # P3 + P4 = the real SOL III block
+    assert g.lunch_inside(1, 2) is None and g.lunch_inside(4, 3) is None and g.lunch_inside(3, 1) is None
+    assert build_grid(time(10), time(17), 60, 5).lunch_inside(1, 6) is None   # no lunch set
 
 
 def test_early_release_counts_periods():
@@ -92,33 +109,53 @@ def test_early_release_counts_periods():
     assert g.available_periods(time(9)) == 0
 
 
-# ---------------------------------------------------------------------- locked-slot rules (plan Section 8)
+# ---------------------------------------------------------------------- locked-slot rules (plan V8)
 @pytest.fixture
 def grid():
-    return build_grid(time(10), time(17), 60, 5, time(13), time(13, 45))
+    return build_grid(time(10), time(16, 50), 60, 5, time(13, 10), time(13, 40))
 
 
 def test_double_block_in_a_normal_place_is_fine(grid):
     assert slot_problems(grid, 5, None, 1, 1, 2) == []
-    assert slot_problems(grid, 5, None, 5, 3, 2) == []
+    assert slot_problems(grid, 5, None, 5, 4, 2) == []
 
 
-def test_double_block_across_lunch_is_refused(grid):
-    problems = slot_problems(grid, 5, None, 2, 2, 2)
-    assert problems and "lunch" in problems[0].lower()
+def test_double_block_around_lunch_is_allowed(grid):
+    # "back-to-back" = 2 consecutive PERIODS: SOL III is Period 3 + Period 4 with lunch in between
+    assert slot_problems(grid, 5, None, 4, 3, 2) == []
+    assert slot_problems(grid, 5, None, 4, 2, 3) == []                         # even 3 periods across the lunch
+    notes = slot_notes(grid, 3, 2)
+    assert len(notes) == 1 and "lunch" in notes[0].lower() and "13:10-13:40" in notes[0]
+    assert slot_notes(grid, 1, 2) == [] and slot_notes(grid, 3, 1) == []
 
 
-def test_slot_after_early_release_is_refused(grid):
-    assert slot_problems(grid, 5, time(15), 1, 3, 2)  # period 4 ends 15:50 > 15:00
-    assert slot_problems(grid, 5, time(15), 1, 3, 1) == []  # period 3 ends 14:45 <= 15:00
-    assert "early-release" in slot_problems(grid, 5, time(12, 30), 1, 3, 1)[0]
+def test_slot_after_the_days_end_time_is_refused(grid):
+    ends_1440 = DayRule(end_time=time(14, 40))
+    assert slot_problems(grid, 5, ends_1440, 4, 3, 2) == []                    # P3+P4 end exactly at 14:40
+    problems = slot_problems(grid, 5, ends_1440, 4, 4, 2)                      # P5 ends 15:45 > 14:40
+    assert problems and "end time on Thursday (14:40)" in problems[0]
+    assert slot_problems(grid, 5, DayRule(end_time=time(12, 30)), 1, 3, 1)     # P3 ends 13:10
+    assert slot_problems(grid, 5, DayRule(end_time=time(11, 0)), 1, 1, 1) == []
+
+
+def test_slot_on_an_off_day_is_refused(grid):
+    problems = slot_problems(grid, 5, DayRule(is_off=True), 5, 1, 2)
+    assert problems and "no lectures on Friday" in problems[0]
 
 
 def test_slot_on_a_non_working_day_or_outside_the_day(grid):
     assert "not a working day" in slot_problems(grid, 5, None, 6, 1, 2)[0]
     assert slot_problems(grid, 6, None, 6, 1, 2) == []
-    assert "do not exist" in slot_problems(grid, 5, None, 1, 5, 2)[0]
+    assert "do not exist" in slot_problems(grid, 5, None, 1, 6, 2)[0]          # periods 6-7: the day has 6
     assert slot_problems(grid, 5, None, 1, 9, 1)
+
+
+def test_class_week_summary(grid):
+    rules = {1: DayRule(end_time=time(14, 40)), 5: DayRule(is_off=True)}
+    week = class_days(grid, 5, rules)
+    assert [d["periods_available"] for d in week] == [4, 6, 6, 6, 0, 0]       # Mon till 14:40, Fri OFF, Sat not a working day
+    assert week[0]["end_time"] == "14:40" and week[4]["is_off"] and not week[5]["working"]
+    assert week[1]["end_time"] is None                                        # default = the college closing time
 
 
 # ---------------------------------------------------------------------- odd / even
@@ -208,3 +245,37 @@ def test_excel_templates_can_be_read_back():
 def test_yes_no_parsing():
     assert excel.yes_no("Yes") is True and excel.yes_no(" y ") is True and excel.yes_no("") is False
     assert excel.yes_no("No") is False and excel.yes_no("maybe") is None
+
+
+# ---------------------------------------------------------------------- optional fields: null / empty / too long (found by the browser test)
+def test_optional_text_accepts_null_empty_and_text_but_refuses_too_long():
+    from pydantic import BaseModel, ValidationError
+
+    from app.validation import optional_text
+
+    class M(BaseModel):
+        note: optional_text(10) = None  # type: ignore[valid-type]
+
+    assert M(note=None).note is None
+    assert M(note="").note is None
+    assert M(note="   ").note is None
+    assert M(note="  hello  ").note == "hello"
+    with pytest.raises(ValidationError):
+        M(note="x" * 11)
+
+
+def test_every_optional_text_field_of_the_api_accepts_null():
+    """The browser sends null for every empty optional field - none of these may crash."""
+    from app.routers.calendar import EntryIn
+    from app.routers.fixed_slots import SlotIn, SlotPatch
+    from app.routers.profile import ProfilePatch
+    from app.routers.structure import CourseIn
+    from app.routers.users import AccountIn, AccountPatch
+
+    assert SlotIn(semester_id="x", day=1, start_period=1, kind="PE", label=None, note=None, teacher_id=None).note is None
+    assert SlotPatch(note=None, label=None).note is None
+    assert EntryIn(title="t", date_from="2026-01-01", note=None).note is None
+    assert CourseIn(school_id="x", name="n", code=None, num_semesters=3).code is None
+    assert AccountIn(full_name="Ab", email="a@b.co", specialization=None, phone=None).phone is None
+    assert AccountPatch(specialization=None, phone=None).specialization is None
+    assert ProfilePatch(specialization=None, phone=None).phone is None

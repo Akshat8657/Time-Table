@@ -28,3 +28,6 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
+
+# ---- temporary files of the browser self-test ----
+frontend/public/__e2e__/

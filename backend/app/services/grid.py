@@ -46,18 +46,30 @@ class Grid:
         return self.periods[number - 1] if 1 <= number <= len(self.periods) else None
 
     def is_continuous(self, first: int, length: int) -> bool:
-        """True when `length` periods starting at `first` follow each other with only the short break in between."""
+        """True when `length` periods starting at `first` follow each other with ONLY the short break in between
+        (no lunch). NOTE: a double block is allowed to sit around lunch (plan V8) - the generator merely PREFERS
+        blocks for which this is true."""
         for n in range(first, first + length - 1):
             a, b = self.period(n), self.period(n + 1)
             if a is None or b is None or b.start - a.end > self.break_minutes:
                 return False
         return True
 
-    def available_periods(self, early_release: time | None) -> int:
-        """How many periods a class can use (a lecture may not end after its early-release time)."""
-        if early_release is None:
+    def lunch_inside(self, first: int, length: int) -> tuple[int, int] | None:
+        """The lunch window, if the block of `length` periods starting at `first` has the lunch break in between."""
+        if self.lunch is None:
+            return None
+        for n in range(first, first + length - 1):
+            a, b = self.period(n), self.period(n + 1)
+            if a is not None and b is not None and a.end <= self.lunch[0] and self.lunch[1] <= b.start:
+                return self.lunch
+        return None
+
+    def available_periods(self, end_time: time | None) -> int:
+        """How many periods a class can use on a day that ends at `end_time` (None = the whole college day)."""
+        if end_time is None:
             return len(self.periods)
-        limit = to_min(early_release)
+        limit = to_min(end_time)
         return sum(1 for p in self.periods if p.end <= limit)
 
     def as_dict(self) -> dict:

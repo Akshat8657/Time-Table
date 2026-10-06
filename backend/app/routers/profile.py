@@ -5,6 +5,7 @@ Role, school, e-mail and the visiting-faculty settings are NOT accepted here (ex
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import time
 import uuid
@@ -19,6 +20,7 @@ from ..errors import ApiError
 from ..scope import as_uuid
 from ..security.deps import CurrentUser, require_roles
 from ..services import accounts
+from ..services import terms as term_svc
 from ..validation import Phone, optional_text, text
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -37,9 +39,29 @@ class ProfilePatch(BaseModel):
 
 async def _me(user: CurrentUser) -> dict:
     uid = uuid.UUID(user.id)
-    row = await db.fetchrow(accounts.ACCOUNT_SELECT + " where p.id = $1", uid)
-    mine = [r["subject_id"] for r in await db.fetch("select subject_id from public.teacher_subjects where teacher_id = $1", uid)]
-    subjects = await db.fetch(
+    row, mine_rows, term, subjects = await asyncio.gather(
+        db.fetchrow(accounts.ACCOUNT_SELECT + " where p.id = $1", uid),
+        db.fetch("select subject_id from public.teacher_subjects where teacher_id = $1", uid),
+        term_svc.active_term(),
+        _school_subjects(user),
+    )
+    mine = [r["subject_id"] for r in mine_rows]
+    return {
+        "profile": accounts.account_out(row, mine),
+        "available_subjects": [
+            {
+                "id": str(s["id"]), "name": s["name"], "code": s["code"],
+                "course": s["course_name"], "semester": s["number"],
+                "running": term is not None and term_svc.parity_matches(term["kind"], s["number"]),
+                "label": f"{s['name']} ({s['code']})  -  {s['course_name']} Sem {s['number']}",
+            }
+            for s in subjects
+        ],
+    }
+
+
+async def _school_subjects(user: CurrentUser):
+    return await db.fetch(
         """
         select s.id, s.name, s.code, sm.number, c.name as course_name
         from public.subjects s
@@ -50,17 +72,6 @@ async def _me(user: CurrentUser) -> dict:
         """,
         uuid.UUID(user.school_id),  # type: ignore[arg-type]
     )
-    return {
-        "profile": accounts.account_out(row, mine),
-        "available_subjects": [
-            {
-                "id": str(s["id"]), "name": s["name"], "code": s["code"],
-                "course": s["course_name"], "semester": s["number"],
-                "label": f"{s['name']} ({s['code']})  -  {s['course_name']} Sem {s['number']}",
-            }
-            for s in subjects
-        ],
-    }
 
 
 @router.get("/me")

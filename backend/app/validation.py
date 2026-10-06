@@ -27,7 +27,8 @@ def optional_text(max_length: int = 300):
         v = clean_text(v)
         return None if v == "" else v
 
-    return Annotated[str | None, BeforeValidator(_empty_to_none), StringConstraints(max_length=max_length)]
+    # the length limit belongs to the text only - a missing value (null / empty) is simply "nothing"
+    return Annotated[Annotated[str, StringConstraints(max_length=max_length)] | None, BeforeValidator(_empty_to_none)]
 
 
 # ---------------------------------------------------------------------- time / date

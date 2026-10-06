@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     login_window_minutes: float = 15.0
     login_ip_max_attempts: int = 30
     enable_api_docs: bool = False
+    # how long (seconds) a checked login session is remembered in memory. 0 = check the database on every request.
+    # Logging out / deactivating / password reset always clear it at once; the delay only matters for edits made
+    # directly in the database.
+    session_cache_seconds: float = 5.0
 
     # ------------------------------------------------------------------ validators
     @field_validator("supabase_url", mode="before")

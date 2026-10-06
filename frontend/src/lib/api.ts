@@ -86,6 +86,10 @@ function checkSessionLost(err: unknown): unknown {
 interface RawInit {
   method: string
   body?: unknown
+  /** a file upload (multipart) instead of JSON */
+  form?: FormData
+  /** the answer is a file (picture, Excel sheet): hand it back as a Blob */
+  blob?: boolean
   token?: string | null
   signal?: AbortSignal
 }
@@ -93,7 +97,7 @@ interface RawInit {
 type Json = any // answers of our own API: shapes are checked by the callers
 
 async function rawRequest(path: string, init: RawInit): Promise<{ res: Response; data: Json }> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: init.blob ? '*/*' : 'application/json' }
   if (init.body !== undefined) headers['Content-Type'] = 'application/json'
   if (init.token) headers.Authorization = `Bearer ${init.token}`
 
@@ -102,7 +106,7 @@ async function rawRequest(path: string, init: RawInit): Promise<{ res: Response;
     res = await fetch(`${API_BASE}/api${path}`, {
       method: init.method,
       headers,
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body: init.form ?? (init.body !== undefined ? JSON.stringify(init.body) : undefined),
       credentials: API_BASE ? 'include' : 'same-origin',
       cache: 'no-store',
       signal: init.signal,
@@ -117,6 +121,9 @@ async function rawRequest(path: string, init: RawInit): Promise<{ res: Response;
   }
 
   let data: Json = null
+  if (init.blob && res.ok) {
+    return { res, data: await res.blob() }
+  }
   const text = await res.text()
   if (text) {
     try {
@@ -166,13 +173,17 @@ export function refreshSession(): Promise<AuthPayload> {
 export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
+  /** a file upload: the browser sets the multipart headers itself */
+  form?: FormData
   /** false for login only */
   auth?: boolean
   signal?: AbortSignal
+  /** @internal - use apiBlob() */
+  blob?: boolean
 }
 
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
-  const { method = 'GET', body, auth = true, signal } = opts
+  const { method = 'GET', body, form, blob, auth = true, signal } = opts
 
   if (!auth) {
     const { res, data } = await rawRequest(path, { method, body, signal })
@@ -186,7 +197,7 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
     throw checkSessionLost(err)
   }
 
-  let { res, data } = await rawRequest(path, { method, body, token: tokenStore.get(), signal })
+  let { res, data } = await rawRequest(path, { method, body, form, blob, token: tokenStore.get(), signal })
   if (res.status === 401 && TOKEN_PROBLEMS.has(data?.code)) {
     // the token ran out (or was lost) just now - renew it once and try again
     try {
@@ -194,10 +205,15 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
     } catch (err) {
       throw checkSessionLost(err)
     }
-    ;({ res, data } = await rawRequest(path, { method, body, token: tokenStore.get(), signal }))
+    ;({ res, data } = await rawRequest(path, { method, body, form, blob, token: tokenStore.get(), signal }))
   }
   if (!res.ok) throw checkSessionLost(errorFrom(res, data))
   return data as T
+}
+
+/** Fetches a file (a photo, an Excel template) with the login token. */
+export function apiBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  return api<Blob>(path, { blob: true, signal })
 }
 
 /** Keeps the token fresh while the page is open. A finished login is announced to the whole app. */

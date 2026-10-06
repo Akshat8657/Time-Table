@@ -6,7 +6,7 @@
 > If something is missing or unclear → **ask the user in simple Hinglish** before guessing.
 > The user is a **non-coder**. You do all the work. All instructions to him must be in simple Hinglish with short numbered steps.
 
-Last updated: 06 Oct 2026 (V5 — PE/SOL rule clarified: credits NEVER decide their lecture count; every PE/SOL session is always a 2-lecture back-to-back block. Rooms stay removed — this software does NOT manage rooms.)
+Last updated: 06 Oct 2026 (V8 — three real-college refinements: a weekday can be marked fully OFF for a semester (Saturday off, OJT/internship days); a double block may sit around lunch (Period 3 + Period 4 style) because "back-to-back" means consecutive periods; labs are typically 1 credit yet always one 2-period block per week — never warn about that mismatch. Everything else unchanged.)
 
 ---
 
@@ -77,6 +77,7 @@ Run on Windows: `start.bat` starts backend (port 8000) + frontend (port 5173) to
 - Create/manage Schools. Create/manage HOD accounts.
 - College-wide settings: college hours (e.g. 10:00–17:00), lecture duration, short break, college-wide bank holidays.
 - Can see and override everything in every school.
+- Reports & analytics for ALL schools: every report has a school-wise filter, plus school-vs-school comparison.
 - Audit Log (admin only).
 - Plus everything an HOD can do, in any school.
 
@@ -90,7 +91,7 @@ Run on Windows: `start.bat` starts backend (port 8000) + frontend (port 5173) to
 - Generate / edit / publish timetables of his school.
 - Mark teachers absent, approve/reject leaves, run substitutions (manual or auto-offer).
 - See ALL teacher profiles of his school: info, specialization, preferences, workload.
-- Reports of his school. AI assistant (full).
+- Reports & analytics of his school ONLY (same reports as admin, locked to his school). AI assistant (full).
 - PLUS full **Teacher Mode** for himself: own schedule, own preferences, own absence/leave, own offers.
 - NOT allowed: other schools' data, college-wide settings, creating schools/HODs, audit log.
 
@@ -129,7 +130,7 @@ Every dashboard shows: today's absents, pending substitutions, "subject hours sh
 - Lecture duration is configurable (default **1 hour**) + a **short break (default 5 min) after every lecture**.
 - The system auto-builds the daily period grid from these settings.
 - **Lunch break timing can be DIFFERENT per school** — HOD sets his school's lunch (admin can override).
-- **Semester-wise early release**: some semesters end early (e.g. 3:00 PM), others run full day (5:00 PM). Set per semester. The generator must NEVER place a lecture after that semester's end time.
+- **Semester-wise early release — DAY-WISE**: each semester gets its own end time for EACH working day, set by HOD/Admin. Examples: M.Sc. AI ends 3:00 PM all week while M.Sc. IT runs till 5:00 PM; or M.Sc. AI ends 3:00 PM on Mon-Wed but runs till 5:00 PM on Thu-Fri. The screen must make this easy: set one end time for the whole week in one click, then change any single day if needed. Default = college end time. A day can also be marked fully OFF for a semester (no lectures at all that day — e.g. Saturday off, or OJT/internship days that block the whole day). The generator must NEVER place a lecture after that semester's end time for that day, or on its OFF days.
 - Working days are a setting in Timing Setup (Mon–Fri or Mon–Sat), changeable anytime.
 
 ---
@@ -139,7 +140,8 @@ Every dashboard shows: today's absents, pending substitutions, "subject hours sh
 - Every subject has: name, code, **credits**, type (Core / Elective), lab flag, total **semester hours**.
 - **Credits = minimum lectures per week.** Example: 4 credits → at least 4 lectures every week.
 - **Semester hours must be fulfilled** by semester end, even when holidays come (Section 12).
-- **Labs**: a lab session is always **2 back-to-back lectures** (one continuous block). The generator must place lab blocks, never a single lab period.
+- **Labs**: a lab session is always **2 back-to-back lectures** (one continuous block). The generator must place lab blocks, never a single lab period. A lab subject is typically 1 credit yet always occupies one 2-period block per week — never warn about credits-vs-hours mismatch for labs.
+- **"Back-to-back" means 2 consecutive PERIODS.** The short break — or even the lunch break — sitting between the two periods does NOT break a double block (real example: SOL III runs Period 3 + Period 4 with lunch in between). Fixed slots must allow this; the generator should simply PREFER not placing labs around lunch (soft preference).
 - **PE (Physical Education) and SOL (Science of Living)**:
   - Compulsory for **ALL classes of ALL courses**.
   - **Always back-to-back 2 lectures** (double block), exactly like labs.
@@ -172,7 +174,7 @@ Every dashboard shows: today's absents, pending substitutions, "subject hours sh
 5. Fixed slots are locked — the generator never moves them.
 6. Visiting faculty only on their allowed days and within their allowed weekly hours.
 7. A teacher's ❌ (not available) slots are never used.
-8. No lecture after a semester's early-release time.
+8. No lecture after that semester's end time for that day (day-wise early release, Section 7).
 9. No lecture during that school's lunch break.
 10. Weekly lectures of each subject ≥ its credits — EXCEPT PE and SOL: their lecture count comes only from their fixed double blocks (see Section 8), never from credits.
 11. A teacher's max-lectures-per-day / per-week limits (set by HOD/Admin) are never crossed.
@@ -307,7 +309,7 @@ Rule: **no spam** — only the relevant people get each notification.
 | **3** | **Automatic generation engine**: hard + soft rules, weights, 2–3 scored drafts, clear "impossible because..." messages + semi-automatic mode + copy previous semester as base | **Fable 5.1** |
 | **4** | Publish + all views (class-wise • teacher-wise • full master) with filters (today/weekly, batch, teacher) + PDF/Excel export with print-friendly layouts + notifications (bell + Web Push) + semester-hours tracking + holiday compensation | Sonnet 5.5 |
 | **5** | Absence/leave + substitution ranking + auto popup offers (first-accept-wins, timeout) + one-day lecture move/cancel/swap + smart shift suggestions + sheets/summaries | Opus 5.5 |
-| **6** | Preference window system + reports (workload vs UGC/AICTE norms, free-teacher finder, hours progress, cancelled sessions) | Sonnet 5.5 |
+| **6** | Preference window system + reports & analytics dashboard: workload vs UGC/AICTE norms, busiest / most-free teacher rankings, free-teacher finder, subject hours progress, cancelled sessions, substitution counts — admin sees ALL schools (school filter + school-vs-school comparison), HOD sees only his school | Sonnet 5.5 |
 | **7** | AI assistant (Gemini) with ALL Section 16 commands | Sonnet 5.5 |
 | **8** | Security hardening + penetration-style testing + load/concurrency testing + speed work + final UI polish | Opus 5.5 |
 | **Future** | Phone/PWA upgrade (install on phone + push). Do NOT build now — just never block it. | — |
@@ -351,6 +353,7 @@ Every phase: build → self-test → backup zip → Hinglish report (Section 20)
 - PE/SOL = fixed + compulsory + ALWAYS a 2-lecture double block; credits NEVER decide their count.
 - Electives of one group = SAME parallel slots.
 - Visiting faculty days/hours = hard limit.
+- Early release is DAY-WISE per semester — a different end time is possible for each weekday, and a day can be fully OFF (Saturday off, OJT days).
 - Semester hours must be fulfilled even with holidays — live tracking + compensation.
 - No room management anywhere — rooms are already fixed in the college. Never add room features.
 - Odd/even term system: timetables are made only for the ACTIVE term's semesters.

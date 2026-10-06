@@ -11,6 +11,7 @@ The browser cookie holds ONLY the opaque Supabase refresh token - no email, no n
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -82,6 +83,46 @@ async def load(supabase_session_id: str) -> asyncpg.Record | None:
     return await db.fetchrow(SESSION_SQL, uuid.UUID(supabase_session_id))
 
 
+# ---------------------------------------------------------------------- short in-memory cache of checked sessions
+# Every API call must prove the session is alive. With the database ~0.5 s away that check would double the time of
+# every click, so a checked session is remembered for a few seconds. EVERY way of ending / changing a session in this
+# program (logout, deactivate, password reset / change, expiry clean-up) clears the cache at once - see invalidate_*.
+_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE_MAX = 2000
+
+
+async def load_cached(settings: Settings, supabase_session_id: str) -> dict[str, Any] | asyncpg.Record | None:
+    ttl = settings.session_cache_seconds
+    if ttl <= 0:
+        return await load(supabase_session_id)
+    hit = _cache.get(supabase_session_id)
+    if hit is not None and time.monotonic() - hit[0] < ttl:
+        return hit[1]
+    row = await load(supabase_session_id)
+    if row is None:
+        _cache.pop(supabase_session_id, None)
+        return None
+    if len(_cache) >= _CACHE_MAX:
+        _cache.clear()
+    entry = dict(row)
+    _cache[supabase_session_id] = (time.monotonic(), entry)
+    return entry
+
+
+def invalidate_session(supabase_session_id: str) -> None:
+    _cache.pop(str(supabase_session_id), None)
+
+
+def invalidate_user(user_id: str) -> None:
+    uid = str(user_id)
+    for key in [k for k, (_, row) in _cache.items() if str(row["user_id"]) == uid]:
+        _cache.pop(key, None)
+
+
+def clear_cache() -> None:
+    _cache.clear()
+
+
 def expiry_reason(row: asyncpg.Record, settings: Settings, now: datetime | None = None) -> str | None:
     """None = still valid. Otherwise: 'idle' | 'absolute' | 'revoked'."""
     now = now or now_utc()
@@ -130,6 +171,9 @@ def info(row: asyncpg.Record | dict[str, Any], settings: Settings, *, last_activ
 
 # ---------------------------------------------------------------------- update / revoke
 async def touch(supabase_session_id: str) -> None:
+    hit = _cache.get(str(supabase_session_id))
+    if hit is not None:
+        hit[1]["last_activity_at"] = now_utc()
     await db.execute(
         "update public.app_sessions set last_activity_at = now() where supabase_session_id = $1 and revoked_at is null",
         uuid.UUID(supabase_session_id),
@@ -140,6 +184,7 @@ async def touch(supabase_session_id: str) -> None:
 async def revoke(supabase_session_id: str, reason: str) -> None:
     """Ends one session everywhere: our record AND the Supabase session (so its tokens stop working)."""
     sid = uuid.UUID(supabase_session_id)
+    invalidate_session(supabase_session_id)
     async with db.transaction() as conn:
         await conn.execute(
             "update public.app_sessions set revoked_at = coalesce(revoked_at, now()), "
@@ -147,15 +192,18 @@ async def revoke(supabase_session_id: str, reason: str) -> None:
             sid, reason,
         )
         await conn.execute("delete from auth.sessions where id = $1", sid)
+    invalidate_session(supabase_session_id)  # again AFTER the commit: a request in between could have re-cached the old row
 
 
 async def delete_supabase_session(supabase_session_id: str) -> None:
+    invalidate_session(supabase_session_id)
     await db.execute("delete from auth.sessions where id = $1", uuid.UUID(supabase_session_id), retry=True)
 
 
 async def revoke_others(user_id: str, keep_session_id: str, reason: str) -> None:
     """Sign the user out of every OTHER device (used after a password change)."""
     uid, keep = uuid.UUID(user_id), uuid.UUID(keep_session_id)
+    invalidate_user(user_id)
     async with db.transaction() as conn:
         await conn.execute(
             "update public.app_sessions set revoked_at = now(), revoked_reason = $3 "
@@ -163,10 +211,12 @@ async def revoke_others(user_id: str, keep_session_id: str, reason: str) -> None
             uid, keep, reason,
         )
         await conn.execute("delete from auth.sessions where user_id = $1 and id <> $2", uid, keep)
+    invalidate_user(user_id)
 
 
 async def revoke_all_for_user(user_id: str, reason: str) -> None:
     uid = uuid.UUID(user_id)
+    invalidate_user(user_id)
     async with db.transaction() as conn:
         await conn.execute(
             "update public.app_sessions set revoked_at = now(), revoked_reason = $2 "
@@ -174,6 +224,7 @@ async def revoke_all_for_user(user_id: str, reason: str) -> None:
             uid, reason,
         )
         await conn.execute("delete from auth.sessions where user_id = $1", uid)
+    invalidate_user(user_id)
 
 
 async def session_id_for_refresh_token(refresh_token: str) -> str | None:
@@ -183,6 +234,7 @@ async def session_id_for_refresh_token(refresh_token: str) -> str | None:
 
 async def cleanup_expired(settings: Settings) -> int:
     """Housekeeping: really end sessions nobody came back to, and forget very old records."""
+    clear_cache()
     tag = await db.execute(
         """
         with expired as (

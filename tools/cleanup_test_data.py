@@ -8,7 +8,7 @@ their courses/subjects/slots, holidays titled 'ZZ ...', and audit rows written b
 
 Only when you ask for it (these change REAL settings, so they are OFF by default):
     --reset-terms    deletes ALL academic terms (and with them the assignments / locked slots of those terms!)
-    --reset-timing   puts the college timing back to the Phase 1 defaults (10:00-17:00, 60 min, 5 min break, Mon-Fri)
+    --reset-timing   puts the college timing back to the real defaults (10:00-16:50, 60 min, 5 min break, Mon-Fri)
     --reset-holidays puts the standard India holiday list back to the official 34 entries
 
 Prints only counts - never any secret.
@@ -42,8 +42,8 @@ async def main() -> None:
         print("removed test accounts:", len(ids))
 
         if "--reset-timing" in sys.argv:
-            await conn.execute("update public.college_settings set college_start='10:00', college_end='17:00', lecture_minutes=60, break_minutes=5, days_per_week=5")
-            print("college timing reset to the Phase 1 defaults")
+            await conn.execute("update public.college_settings set college_start='10:00', college_end='16:50', lecture_minutes=60, break_minutes=5, days_per_week=5")
+            print("college timing reset to the real defaults (10:00-16:50)")
         if "--reset-terms" in sys.argv:
             await conn.execute("delete from public.academic_terms")
             print("all academic terms deleted")

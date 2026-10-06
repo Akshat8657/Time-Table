@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -46,7 +47,7 @@ except (ValidationError, ValueError) as exc:
 # ---------------------------------------------------------------------- start-up / shut-down
 async def _startup_checks(auth: SupabaseAuth) -> None:
     try:
-        async with db.pool().acquire() as conn:
+        async with db.acquire() as conn:
             pending = await pending_versions(conn)
         if pending:
             log.error(
@@ -79,9 +80,22 @@ async def _housekeeping() -> None:
         await asyncio.sleep(1800)
 
 
+async def _keepalive() -> None:
+    """Every ~100 s touch the kept-warm database connections (the pooler would silently drop idle ones)."""
+    while True:
+        try:
+            await asyncio.sleep(100)
+            await db.keep_warm()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Database keep-alive failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_pool()
+    await db.keep_warm()  # open the spare connections now, not on somebody's first click
     auth = SupabaseAuth(settings)
     app.state.auth = auth
     app.state.verifier = TokenVerifier(settings, auth)
@@ -89,11 +103,13 @@ async def lifespan(app: FastAPI):
     app.state.pw_limiter = AttemptLimiter(settings, prefix="pw")
     await _startup_checks(auth)
     task = asyncio.create_task(_housekeeping())
+    keepalive = asyncio.create_task(_keepalive())
     log.info("TimeTablePro API is ready")
     try:
         yield
     finally:
         task.cancel()
+        keepalive.cancel()
         await auth.aclose()
         await db.close_pool()
 
@@ -193,7 +209,11 @@ async def security_guard(request: Request, call_next):
         if origin is not None and origin.rstrip("/") not in settings.origins:
             log.warning("Blocked %s %s from foreign origin %s", request.method, request.url.path, origin)
             return _error_response(403, "BAD_ORIGIN", "This request was blocked for your safety.")
+    started = time.monotonic()
     response = await call_next(request)
+    took = time.monotonic() - started
+    if took > 4.0:  # a slow screen is a bug: leave a trace (path only - never the query string or any data)
+        log.warning("SLOW request: %s %s took %.1f s", request.method, request.url.path, took)
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

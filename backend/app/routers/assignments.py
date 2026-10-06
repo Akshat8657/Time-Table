@@ -1,10 +1,14 @@
 """Assignment: which teacher teaches which subject (= which class) in the active term (plan Sections 5.2, 17).
 
+A subject has a PRIMARY teacher and may have an optional CO-TEACHER (shared subjects): both appear on the timetable
+and every clash check applies to both.
+
 HARD RULE: a subject can only be given to a teacher who is allowed to teach it. The API refuses anything else,
-and the database has a foreign key that refuses it too.
+and the database has foreign keys that refuse it too.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -21,11 +25,15 @@ from .subjects import LIST_SQL, subject_out
 router = APIRouter(prefix="/api/assignments", tags=["assignment"])
 ROLES = ("admin", "hod")
 
+# weekly lectures of a person: credits of the subjects they teach (primary OR co-teacher; PE / SOL credits do not count)
+# + the length of their locked slots that are not already part of one of those subjects
 LOAD_SQL = """
 select p.id,
        coalesce((select sum(s.credits) from public.assignments a join public.subjects s on s.id = a.subject_id
-                 where a.teacher_id = p.id and a.term_id = $2 and s.special_kind is null), 0)  as credits_load,
-       coalesce((select sum(f.length) from public.fixed_slots f where f.teacher_id = p.id and f.term_id = $2), 0) as locked_load
+                 where (a.teacher_id = p.id or a.co_teacher_id = p.id) and a.term_id = $2 and s.special_kind is null), 0) as credits_load,
+       coalesce((select sum(f.length) from public.fixed_slots f left join public.subjects s on s.id = f.subject_id
+                 where (f.teacher_id = p.id or f.co_teacher_id = p.id) and f.term_id = $2
+                   and (f.subject_id is null or s.special_kind is not null)), 0) as locked_load
 from public.profiles p
 where p.school_id = $1
 """
@@ -59,27 +67,28 @@ async def list_assignments(
         sql += f" and s.semester_id = ${len(args)}"
     if q and q.strip():
         args.append(f"%{q.strip()[:80].replace('%', ' ').replace('_', ' ')}%")
-        sql += f" and (s.name ilike ${len(args)} or s.code ilike ${len(args)} or coalesce(p.full_name, '') ilike ${len(args)})"
-    rows = await db.fetch(sql + " order by c.name, sm.number, s.is_elective, s.name limit 1000", *args)
-
-    eligible_rows = await db.fetch(
-        """
-        select ts.subject_id, p.id, p.full_name from public.teacher_subjects ts
-        join public.profiles p on p.id = ts.teacher_id and p.is_active
-        where ts.school_id = $1 order by p.full_name
-        """,
-        sid,
+        sql += (f" and (s.name ilike ${len(args)} or s.code ilike ${len(args)} or coalesce(p.full_name, '') ilike ${len(args)}"
+                f" or coalesce(cp.full_name, '') ilike ${len(args)})")
+    rows, eligible_rows, teachers, loads = await asyncio.gather(
+        db.fetch(sql + " order by c.name, sm.number, s.is_elective, s.name limit 1000", *args),
+        db.fetch(
+            """
+            select ts.subject_id, p.id, p.full_name from public.teacher_subjects ts
+            join public.profiles p on p.id = ts.teacher_id and p.is_active
+            where ts.school_id = $1 order by p.full_name
+            """,
+            sid,
+        ),
+        db.fetch(
+            "select id, full_name, role, is_visiting, visiting_days, max_weekly_hours from public.profiles "
+            "where school_id = $1 and is_active order by lower(full_name)",
+            sid,
+        ),
+        _loads(sid, term["id"]),
     )
     eligible: dict[Any, list[dict]] = {}
     for e in eligible_rows:
         eligible.setdefault(e["subject_id"], []).append({"id": str(e["id"]), "name": e["full_name"]})
-
-    teachers = await db.fetch(
-        "select id, full_name, role, is_visiting, visiting_days, max_weekly_hours from public.profiles "
-        "where school_id = $1 and is_active order by lower(full_name)",
-        sid,
-    )
-    loads = await _loads(sid, term["id"])
     subjects = []
     for r in rows:
         item = subject_out(r)
@@ -103,55 +112,76 @@ class AssignIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     subject_id: str
     teacher_id: str
+    co_teacher_id: str | None = None      # optional second teacher; null / missing = no co-teacher
 
 
 @router.put("")
 async def assign(body: AssignIn, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
     subject = await load_in_scope("subjects", body.subject_id, user, what="subject")
-    term = await term_svc.require_active_term()
-    sem = await db.fetchrow(
-        "select sm.number, c.name from public.semesters sm join public.courses c on c.id = sm.course_id where sm.id = $1",
-        subject["semester_id"],
+    term, sem = await asyncio.gather(
+        term_svc.require_active_term(),
+        db.fetchrow(
+            "select sm.number, c.name from public.semesters sm join public.courses c on c.id = sm.course_id where sm.id = $1",
+            subject["semester_id"],
+        ),
     )
-    term_svc.require_active_semester(term, sem["number"], term_svc.semester_label(sem["name"], sem["number"]))
+    label = term_svc.semester_label(sem["name"], sem["number"])
+    term_svc.require_active_semester(term, sem["number"], label)
 
-    teacher = await db.fetchrow(
-        "select id, full_name, school_id, is_active, is_visiting, max_weekly_hours from public.profiles "
-        "where id = $1 and role in ('teacher', 'hod')",
-        as_uuid(body.teacher_id, "teacher"),
-    )
-    if teacher is None or str(teacher["school_id"]) != str(subject["school_id"]):
-        raise ApiError(404, "NOT_FOUND", "That teacher was not found in this school.")
-    if not teacher["is_active"]:
-        raise ApiError(409, "TEACHER_INACTIVE", f"{teacher['full_name']} is deactivated and cannot be assigned.")
-    can = await db.fetchval(
-        "select exists(select 1 from public.teacher_subjects where teacher_id = $1 and subject_id = $2)",
-        teacher["id"], subject["id"],
-    )
-    if not can:
+    teacher_id = as_uuid(body.teacher_id, "teacher")
+    co_id = as_uuid(body.co_teacher_id, "co-teacher") if body.co_teacher_id else None
+    if co_id is not None and co_id == teacher_id:
         raise ApiError(
-            422, "TEACHER_CANNOT_TEACH",
-            f"{teacher['full_name']} cannot teach '{subject['name']}'. Add this subject to the teacher's "
-            "'subjects they can teach' first (Teachers screen).",
-            extra={"fields": {"teacher_id": "This teacher is not allowed to teach this subject."}},
+            422, "VALIDATION_ERROR", "The teacher and the co-teacher must be two different people.",
+            extra={"fields": {"co_teacher_id": "Choose a different person."}},
         )
+    wanted = [teacher_id] + ([co_id] if co_id else [])
+    people_rows, able_rows = await asyncio.gather(
+        db.fetch(
+            "select id, full_name, school_id, is_active, is_visiting, max_weekly_hours from public.profiles "
+            "where id = any($1::uuid[]) and role in ('teacher', 'hod')",
+            wanted,
+        ),
+        db.fetch("select teacher_id from public.teacher_subjects where subject_id = $1 and teacher_id = any($2::uuid[])", subject["id"], wanted),
+    )
+    people = {r["id"]: r for r in people_rows}
+    able = {r["teacher_id"] for r in able_rows}
+    for tid, field in ((teacher_id, "teacher_id"), (co_id, "co_teacher_id")):
+        if tid is None:
+            continue
+        person = people.get(tid)
+        if person is None or str(person["school_id"]) != str(subject["school_id"]):
+            raise ApiError(404, "NOT_FOUND", "That teacher was not found in this school.")
+        if not person["is_active"]:
+            raise ApiError(409, "TEACHER_INACTIVE", f"{person['full_name']} is deactivated and cannot be assigned.")
+        if tid not in able:
+            raise ApiError(
+                422, "TEACHER_CANNOT_TEACH",
+                f"{person['full_name']} cannot teach '{subject['name']}'. Add this subject to the teacher's "
+                "'subjects they can teach' first (Teachers screen).",
+                extra={"fields": {field: "This teacher is not allowed to teach this subject."}},
+            )
 
+    teacher = people[teacher_id]
     async with db.transaction() as conn:
         existing = await conn.fetchrow(
-            "select id, teacher_id from public.assignments where term_id = $1 and subject_id = $2 for update",
-            term["id"], subject["id"],
+            "select id from public.assignments where term_id = $1 and subject_id = $2 for update", term["id"], subject["id"]
         )
         if existing is None:
             row = await conn.fetchrow(
-                "insert into public.assignments (school_id, term_id, subject_id, teacher_id, created_by) "
-                "values ($1, $2, $3, $4, $5) returning id",
-                subject["school_id"], term["id"], subject["id"], teacher["id"], uuid.UUID(user.id),
+                "insert into public.assignments (school_id, term_id, subject_id, teacher_id, co_teacher_id, created_by) "
+                "values ($1, $2, $3, $4, $5, $6) returning id",
+                subject["school_id"], term["id"], subject["id"], teacher_id, co_id, uuid.UUID(user.id),
             )
-            action, summary = "create", f"Assigned {teacher['full_name']} to {subject['name']} ({sem['name']} Sem {sem['number']})"
+            action = "create"
+            summary = f"Assigned {teacher['full_name']} to {subject['name']} ({label})"
         else:
             row = existing
-            await conn.execute("update public.assignments set teacher_id = $2 where id = $1", existing["id"], teacher["id"])
-            action, summary = "update", f"Changed the teacher of {subject['name']} ({sem['name']} Sem {sem['number']}) to {teacher['full_name']}"
+            await conn.execute("update public.assignments set teacher_id = $2, co_teacher_id = $3 where id = $1", existing["id"], teacher_id, co_id)
+            action = "update"
+            summary = f"Changed the teacher of {subject['name']} ({label}) to {teacher['full_name']}"
+        if co_id:
+            summary += f" with co-teacher {people[co_id]['full_name']}"
         await audit.record(
             conn, user, action, "assignment", row["id"], summary, school_id=subject["school_id"],
             details={"term": term_svc.term_name(term["kind"], term["year"]), "subject": subject["code"]},
@@ -159,12 +189,14 @@ async def assign(body: AssignIn, user: CurrentUser = Depends(require_roles(*ROLE
 
     loads = await _loads(subject["school_id"], term["id"])  # after the commit, so the new assignment is counted
     warnings: list[str] = []
-    load = loads.get(teacher["id"], 0)
-    if teacher["is_visiting"] and teacher["max_weekly_hours"] and load > teacher["max_weekly_hours"]:
-        warnings.append(
-            f"{teacher['full_name']} is visiting faculty with a limit of {teacher['max_weekly_hours']} hours per week, "
-            f"but now has {load} hours of lectures."
-        )
+    for tid in wanted:
+        p = people[tid]
+        load = loads.get(tid, 0)
+        if p["is_visiting"] and p["max_weekly_hours"] and load > p["max_weekly_hours"]:
+            warnings.append(
+                f"{p['full_name']} is visiting faculty with a limit of {p['max_weekly_hours']} hours per week, "
+                f"but now has {load} hours of lectures."
+            )
     return {"id": str(row["id"]), "warnings": warnings}
 
 

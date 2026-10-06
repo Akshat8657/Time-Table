@@ -1,6 +1,8 @@
-"""Phase 1 API tests, part B: subjects + electives, assignment, timing, fixed slots, holidays & events, semester dates.
+"""Phase 1 API tests, part B: subjects + electives, assignment (+ co-teacher), timing (day-wise schedule),
+fixed slots, holidays & events, semester dates.
 
-Runs in a throw-away school. The tests build on each other (run them in file order).
+Runs in a throw-away school against the REAL API + Supabase. The tests build on each other (run them in file order).
+NOTE: every request makes several round trips to the remote database (~0.5 s each), so this file takes a few minutes.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from .conftest import RUN_ID, bearer, connect_one, db_exec, db_fetch, db_val, ma
 
 S: dict = {}
 ODD = "Odd 2026"
+REAL = {"college_start": "10:00", "college_end": "16:50", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5}
 
 
 def fields(resp) -> dict:
@@ -23,8 +26,8 @@ def fields(resp) -> dict:
 def odd_term(p1):
     r = p1.api(p1.admin, "PUT", "/api/terms/active", json={"kind": "odd", "year": 2026})
     assert r.status_code == 200
-    # the timing tests expect the standard college timing
-    r = p1.api(p1.admin, "PUT", "/api/timing/college", json={"college_start": "10:00", "college_end": "17:00", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5})
+    # the timing tests expect the real college timing (10:00-16:50, 1 hour lectures, 5 min breaks, Mon-Fri)
+    r = p1.api(p1.admin, "PUT", "/api/timing/college", json=REAL)
     assert r.status_code == 200, r.text
 
 
@@ -61,12 +64,21 @@ def test_hod_creates_subjects_for_running_classes(p1):
     assert listing["active_term"]["name"] == ODD
     row = next(s for s in listing["subjects"] if s["code"] == "DBMS5")
     assert (row["class_label"], row["credits"], row["semester_hours"], row["is_lab"], row["is_elective"]) == ("ZZ Course - Sem 5", 4, 60, False, False)
+    assert row["teacher_id"] is None and row["co_teacher_id"] is None
 
 
-def test_lab_and_pe_sol_hints(p1):
-    r = subj(p1, p1.hod, 1, "LAB1", name="Programming Lab", credits=3, semester_hours=45, is_lab=True)
-    assert r.status_code == 201 and any("2 lectures" in w for w in r.json()["warnings"])      # odd credits for a lab
-    assert subj(p1, p1.hod, 1, "LAB2", name="Net Lab", credits=2, semester_hours=30, is_lab=True).json()["warnings"] == []
+def test_labs_are_typically_one_credit_and_never_get_a_credits_warning(p1):
+    # plan V8: a lab is usually 1 credit yet always ONE 2-period block per week - no credits-vs-hours warning, ever
+    for code, credits in (("LAB1", 1), ("LAB2", 2), ("LAB3", 3), ("LAB4", 4)):
+        r = subj(p1, p1.hod, 1, code, name=f"Lab {code}", credits=credits, semester_hours=30, is_lab=True)
+        assert r.status_code == 201 and r.json()["warnings"] == [], (code, r.json())
+    row = next(s for s in p1.api(p1.hod, "GET", "/api/subjects?q=LAB1").json()["subjects"])
+    assert row["is_lab"] is True and row["credits"] == 1
+    r = p1.api(p1.hod, "PATCH", f"/api/subjects/{row['id']}", json={"credits": 3})
+    assert r.status_code == 200 and r.json()["warnings"] == []
+
+
+def test_pe_and_sol_hints(p1):
     r = subj(p1, p1.hod, 1, "PE1", name="Physical Education", credits=1, semester_hours=30, special_kind="PE")
     assert r.status_code == 201 and any("PE" in w and "credits" in w for w in r.json()["warnings"])
     S["pe1"] = r.json()["id"]
@@ -98,7 +110,6 @@ def test_listing_shows_only_the_running_semesters(p1):
     subjects = p1.api(p1.hod, "GET", "/api/subjects").json()["subjects"]
     assert {s["semester_number"] for s in subjects} <= {1, 3, 5}
     assert "EVENHIDDEN" not in {s["code"] for s in subjects}
-    # ... and cannot be edited through the API while it does not run
     hidden = db_val("select id from public.subjects where code = 'EVENHIDDEN'")
     r = p1.api(p1.hod, "PATCH", f"/api/subjects/{hidden}", json={"credits": 5})
     assert r.status_code == 409 and r.json()["code"] == "SEMESTER_NOT_ACTIVE"
@@ -111,8 +122,8 @@ def test_subject_search_and_filters(p1):
     assert by("?q=dbms5") == {"DBMS5"}
     assert by(f"?semester_id={sem(p1, 3)}") == {"OS3"}
     assert "DBMS5" in by(f"?course_id={p1.course}") and "ZZB-1" not in by(f"?course_id={p1.course}")
-    assert by("?q=%25") == set() or True      # '%' is just text, not a wildcard
     assert by("?q=zzzznothing") == set()
+    assert p1.api(p1.hod, "GET", "/api/subjects?q=%25").status_code == 200      # '%' is just text, not a wildcard
     assert p1.api(p1.hod, "GET", "/api/subjects?semester_id=bad").status_code == 422
 
 
@@ -145,20 +156,17 @@ def test_edit_and_delete_a_subject(p1):
 
 
 def test_hod_is_locked_to_his_own_school_for_subjects(p1):
-    # creating in / reading / changing another school's data
     assert p1.api(p1.hod, "POST", "/api/subjects", json={"semester_id": p1.b_sems[1], "name": "X", "code": "XB1", "credits": 3, "semester_hours": 40}).status_code == 404
     assert p1.api(p1.hod, "GET", f"/api/subjects?school_id={p1.school_b}").status_code == 403
     assert p1.api(p1.hod, "GET", f"/api/subjects/groups?school_id={p1.school_b}").status_code == 403
     assert p1.api(p1.hod, "PATCH", f"/api/subjects/{p1.b_subject}", json={"credits": 9}).status_code == 404
     assert p1.api(p1.hod, "DELETE", f"/api/subjects/{p1.b_subject}").status_code == 404
     assert db_val("select credits from public.subjects where id = $1", uuid.UUID(p1.b_subject)) == 3
-    # roles
     assert p1.api(p1.teacher, "GET", "/api/subjects").status_code == 403
     assert subj(p1, p1.teacher, 1, "TEACHERS").status_code == 403
     assert p1.api(p1.admin, "GET", "/api/subjects").status_code == 422        # admin must say which school
     assert p1.api(p1.admin, "GET", f"/api/subjects?school_id={p1.school}").status_code == 200
-    # the admin can do everything an HOD can, in any school
-    assert subj(p1, p1.admin, 1, "ADMINMADE").status_code == 201
+    assert subj(p1, p1.admin, 1, "ADMINMADE").status_code == 201               # the admin can do everything an HOD can
 
 
 # ---------------------------------------------------------------------- electives (plan Section 9)
@@ -185,25 +193,20 @@ def test_elective_groups_and_the_same_credits_warning(p1):
     assert a["class_label"] == "ZZ Course - Sem 5" and {m["code"] for m in a["members"]} == {"AI5E", "CY5E", "DS5E"}
     assert any("Credits differ" in w for w in a["warnings"])
 
-    # fix the credits -> the warning disappears
-    r = p1.api(p1.hod, "PATCH", f"/api/subjects/{S['cy']}", json={"credits": 4, "semester_hours": 60})
+    r = p1.api(p1.hod, "PATCH", f"/api/subjects/{S['cy']}", json={"credits": 4, "semester_hours": 60})   # fix the credits -> warning gone
     assert r.status_code == 200 and r.json()["warnings"] == []
     a = next(x for x in p1.api(p1.hod, "GET", "/api/subjects/groups").json()["groups"] if x["id"] == gid)
     assert a["warnings"] == []
 
 
 def test_elective_rules(p1):
-    # a non-elective cannot join a group; a group of another class cannot be used
-    assert subj(p1, p1.hod, 5, "E1", elective_group_id=S["group"]).status_code == 422
+    assert subj(p1, p1.hod, 5, "E1", elective_group_id=S["group"]).status_code == 422          # a non-elective cannot join a group
     other = p1.api(p1.hod, "POST", "/api/subjects/groups", json={"semester_id": sem(p1, 3), "name": "Group S3"}).json()["id"]
-    r = subj(p1, p1.hod, 5, "E2", is_elective=True, elective_group_id=other)
+    r = subj(p1, p1.hod, 5, "E2", is_elective=True, elective_group_id=other)                  # a group of another class cannot be used
     assert r.status_code == 422 and "elective_group_id" in fields(r)
-    r = p1.api(p1.hod, "PATCH", f"/api/subjects/{S['ai']}", json={"elective_group_id": other})
-    assert r.status_code == 422
-    # making a subject a normal one removes it from its group
-    assert p1.api(p1.hod, "PATCH", f"/api/subjects/{S['ds']}", json={"is_elective": False}).status_code == 200
+    assert p1.api(p1.hod, "PATCH", f"/api/subjects/{S['ai']}", json={"elective_group_id": other}).status_code == 422
+    assert p1.api(p1.hod, "PATCH", f"/api/subjects/{S['ds']}", json={"is_elective": False}).status_code == 200   # normal again -> leaves its group
     assert db_val("select elective_group_id from public.subjects where id = $1", uuid.UUID(S["ds"])) is None
-    # a group with a single elective is flagged
     only = next(x for x in p1.api(p1.hod, "GET", "/api/subjects/groups").json()["groups"] if x["id"] == other)
     assert only["members"] == [] and p1.api(p1.hod, "PATCH", f"/api/subjects/groups/{other}", json={"name": "Renamed S3"}).status_code == 200
     assert p1.api(p1.hod, "DELETE", f"/api/subjects/groups/{other}").status_code == 200
@@ -221,7 +224,7 @@ def test_deleting_a_group_only_ungroups_its_subjects(p1):
 
 
 # ====================================================================================================
-# 2) ASSIGNMENT (teacher <-> subject <-> class)
+# 2) ASSIGNMENT (teacher <-> subject <-> class)  + optional co-teacher
 # ====================================================================================================
 def test_a_subject_cannot_go_to_a_teacher_who_cannot_teach_it(p1):
     t = new_teacher(p1, "plain")
@@ -231,8 +234,7 @@ def test_a_subject_cannot_go_to_a_teacher_who_cannot_teach_it(p1):
     assert "teacher_id" in fields(r)
     assert db_val("select count(*) from public.assignments where subject_id = $1", uuid.UUID(S["dbms"])) == 0
 
-    # the DATABASE refuses it too (foreign key), even if somebody bypasses the API
-    async def sneaky():
+    async def sneaky():   # the DATABASE refuses it too (foreign key), even if somebody bypasses the API
         conn = await connect_one()
         try:
             term = await conn.fetchval("select id from public.academic_terms where is_active")
@@ -247,17 +249,17 @@ def test_a_subject_cannot_go_to_a_teacher_who_cannot_teach_it(p1):
 
 def test_assign_after_adding_the_subject_to_the_teachers_list(p1):
     t = S["plain"]
-    assert p1.api(p1.hod, "PATCH", f"/api/users/{t['id']}", json={"subject_ids": [S["dbms"], S["ai"]]}).status_code == 200
+    assert p1.api(p1.hod, "PATCH", f"/api/users/{t['id']}", json={"subject_ids": [S["dbms"], S["ai"], S["pe1"]]}).status_code == 200
     r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t["id"]})
     assert r.status_code == 200 and r.json()["warnings"] == []
     S["assignment"] = r.json()["id"]
     rows = p1.api(p1.hod, "GET", "/api/assignments").json()
     row = next(s for s in rows["subjects"] if s["id"] == S["dbms"])
-    assert row["teacher_id"] == t["id"] and row["assignment_id"] == S["assignment"]
+    assert row["teacher_id"] == t["id"] and row["assignment_id"] == S["assignment"] and row["co_teacher_id"] is None
     assert t["id"] in {e["id"] for e in row["eligible_teachers"]}
     assert next(x for x in rows["teachers"] if x["id"] == t["id"])["weekly_load"] == 4            # DBMS = 4 credits
-    # PE / SOL credits are not counted as weekly lectures
-    assert next(s for s in rows["subjects"] if s["code"] == "PE1")["eligible_teachers"] == []
+    assert next(s for s in rows["subjects"] if s["code"] == "PE1")["eligible_teachers"] != []    # plain can teach PE
+    # PE / SOL credits are not counted as weekly lectures (nobody is assigned PE here, so still 4)
 
 
 def test_changing_the_teacher_replaces_the_assignment(p1):
@@ -268,6 +270,58 @@ def test_changing_the_teacher_replaces_the_assignment(p1):
     row = next(s for s in p1.api(p1.hod, "GET", "/api/assignments").json()["subjects"] if s["id"] == S["dbms"])
     assert row["teacher_id"] == t2["id"]
     S["t2"] = t2
+
+
+def test_a_shared_subject_has_a_primary_teacher_and_a_co_teacher(p1):
+    plain, t2 = S["plain"], S["t2"]
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": plain["id"]})
+    assert r.status_code == 200, r.text
+    row = next(s for s in p1.api(p1.hod, "GET", "/api/assignments").json()["subjects"] if s["id"] == S["dbms"])
+    assert (row["teacher_id"], row["co_teacher_id"], row["co_teacher_name"]) == (t2["id"], plain["id"], "Tea plain")
+    listing = p1.api(p1.hod, "GET", "/api/subjects?q=dbms5").json()["subjects"][0]
+    assert listing["co_teacher_name"] == "Tea plain"
+    teachers = {x["id"]: x for x in p1.api(p1.hod, "GET", "/api/assignments").json()["teachers"]}
+    assert teachers[t2["id"]]["weekly_load"] == 4 and teachers[plain["id"]]["weekly_load"] == 4   # BOTH are present for all 4 lectures
+    assert [s["code"] for s in p1.api(p1.hod, "GET", "/api/assignments?q=tea plain").json()["subjects"]] == ["DBMS5"]   # searchable by co-teacher
+
+    # the rules apply to the co-teacher as well
+    nodb = new_teacher(p1, "nodb")
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": nodb["id"]})
+    assert r.status_code == 422 and r.json()["code"] == "TEACHER_CANNOT_TEACH" and "co_teacher_id" in fields(r)
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": t2["id"]})
+    assert r.status_code == 422 and "co_teacher_id" in fields(r)
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": p1.teacher_b.account.user_id})
+    assert r.status_code == 404
+    ghost = new_teacher(p1, "ghost2", subject_ids=[S["dbms"]])
+    assert p1.api(p1.hod, "POST", f"/api/users/{ghost['id']}/deactivate").status_code == 200
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": ghost["id"]})
+    assert r.status_code == 409 and r.json()["code"] == "TEACHER_INACTIVE"
+
+    async def sneaky():   # database level: the co-teacher must also be allowed to teach the subject
+        conn = await connect_one()
+        try:
+            await conn.execute("update public.assignments set co_teacher_id = $1 where id = $2", uuid.UUID(nodb["id"]), uuid.UUID(S["assignment"]))
+        finally:
+            await conn.close()
+
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        run(sneaky())
+    with pytest.raises(asyncpg.CheckViolationError):                                 # and cannot be the same person
+        db_exec("update public.assignments set co_teacher_id = teacher_id where id = $1", uuid.UUID(S["assignment"]))
+
+    # co-teacher is protected like a teacher: cannot be deactivated / lose the subject while assigned
+    assert p1.api(p1.hod, "POST", f"/api/users/{plain['id']}/deactivate").status_code == 409
+    r = p1.api(p1.hod, "PATCH", f"/api/users/{plain['id']}", json={"subject_ids": [S["ai"], S["pe1"]]})
+    assert r.status_code == 409 and r.json()["code"] == "IN_USE"
+
+    # removing the co-teacher: send the assignment again without one
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"]})
+    assert r.status_code == 200
+    assert next(s for s in p1.api(p1.hod, "GET", "/api/assignments").json()["subjects"] if s["id"] == S["dbms"])["co_teacher_id"] is None
+    assert p1.api(p1.hod, "POST", f"/api/users/{plain['id']}/deactivate").status_code == 200   # no longer protected ...
+    assert p1.api(p1.hod, "POST", f"/api/users/{plain['id']}/reactivate").status_code == 200   # ... (put back for the later tests)
+    # final state used by the later tests: Tea second + co-teacher Tea plain
+    assert p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["dbms"], "teacher_id": t2["id"], "co_teacher_id": plain["id"]}).status_code == 200
 
 
 def test_assignment_protects_the_teachers_subject_list_and_account(p1):
@@ -282,12 +336,10 @@ def test_assignment_protects_the_teachers_subject_list_and_account(p1):
 
 def test_assignment_rules_and_school_locking(p1):
     plain = S["plain"]
-    # a deactivated teacher cannot be assigned
     ghost = new_teacher(p1, "ghost", subject_ids=[S["ai"]])
     assert p1.api(p1.hod, "POST", f"/api/users/{ghost['id']}/deactivate").status_code == 200
     r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": ghost["id"]})
     assert r.status_code == 409 and r.json()["code"] == "TEACHER_INACTIVE"
-    # other schools
     r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": p1.teacher_b.account.user_id})
     assert r.status_code == 404
     r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": p1.b_subject, "teacher_id": plain["id"]})
@@ -295,7 +347,7 @@ def test_assignment_rules_and_school_locking(p1):
     assert p1.api(p1.hod, "GET", f"/api/assignments?school_id={p1.school_b}").status_code == 403
     assert p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": "x", "teacher_id": plain["id"]}).status_code == 422
     assert p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"]}).status_code == 422
-    # an assignment of another school cannot be removed
+
     async def foreign():
         conn = await connect_one()
         try:
@@ -308,9 +360,8 @@ def test_assignment_rules_and_school_locking(p1):
             await conn.close()
 
     foreign_id = run(foreign())
-    assert p1.api(p1.hod, "DELETE", f"/api/assignments/{foreign_id}").status_code == 404
+    assert p1.api(p1.hod, "DELETE", f"/api/assignments/{foreign_id}").status_code == 404     # another school's assignment
     assert db_val("select count(*) from public.assignments where id = $1", foreign_id) == 1
-    # roles
     assert p1.api(p1.teacher, "GET", "/api/assignments").status_code == 403
     assert p1.api(p1.teacher, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": plain["id"]}).status_code == 403
     assert p1.api(p1.teacher, "DELETE", f"/api/assignments/{S['assignment']}").status_code == 403
@@ -321,11 +372,14 @@ def test_visiting_teacher_hour_limit_warns(p1):
     r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": vis["id"]})
     assert r.status_code == 200 and any("limit of 2 hours" in w for w in r.json()["warnings"])
     S["vis"], S["ai_assignment"] = vis, r.json()["id"]
+    # as a CO-teacher the same limit applies
+    r = p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": S["plain"]["id"], "co_teacher_id": vis["id"]})
+    assert r.status_code == 200 and any("limit of 2 hours" in w and "Tea visiting" in w for w in r.json()["warnings"])
+    assert p1.api(p1.hod, "PUT", "/api/assignments", json={"subject_id": S["ai"], "teacher_id": vis["id"]}).status_code == 200   # back: visiting primary
 
 
 def test_search_and_remove_assignments(p1):
     names = lambda qs: {s["code"] for s in p1.api(p1.hod, "GET", "/api/assignments" + qs).json()["subjects"]}  # noqa: E731
-    assert names("?q=tea visiting") == set() or True
     assert "AI5E" in names("?q=visiting")                            # searching by the teacher's name
     assert names(f"?semester_id={sem(p1, 3)}") == {"OS3"}
     r = p1.api(p1.hod, "DELETE", f"/api/assignments/{S['ai_assignment']}")
@@ -333,28 +387,39 @@ def test_search_and_remove_assignments(p1):
     assert p1.api(p1.hod, "DELETE", f"/api/assignments/{S['ai_assignment']}").status_code == 404
     row = next(s for s in p1.api(p1.hod, "GET", "/api/assignments").json()["subjects"] if s["id"] == S["ai"])
     assert row["teacher_id"] is None
-    # an assigned subject cannot be deleted
-    r = p1.api(p1.hod, "DELETE", f"/api/subjects/{S['dbms']}")
+    r = p1.api(p1.hod, "DELETE", f"/api/subjects/{S['dbms']}")                       # an assigned subject cannot be deleted
     assert r.status_code == 409 and r.json()["code"] == "IN_USE"
 
 
 # ====================================================================================================
-# 3) TIMING SETUP
+# 3) TIMING SETUP (college hours, lunch, DAY-WISE schedule of every semester)
 # ====================================================================================================
-def test_everyone_sees_the_timing_defaults_and_the_auto_built_grid(p1):
-    db = db_fetch("select * from public.college_settings")[0]
+def week(p1, label="ZZ Course - Sem 1"):
+    return next(c for c in p1.api(p1.hod, "GET", "/api/timing").json()["classes"] if c["label"] == label)["days"]
+
+
+def test_the_real_college_timing_is_the_default_and_the_grid_is_auto_built(p1):
     r = p1.api(p1.hod, "GET", "/api/timing").json()
-    assert r["college"] == {"college_start": "10:00", "college_end": "17:00", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5}
-    assert r["school"]["id"] == p1.school and r["school"]["lunch_start"] is None
+    assert r["college"] == REAL
+    assert r["school"]["id"] == p1.school and r["school"]["lunch_start"] is None          # the test school has no lunch yet
     periods = r["grid"]["periods"]
-    assert [(p["start"], p["end"]) for p in periods][:2] == [("10:00", "11:00"), ("11:05", "12:05")] and len(periods) == 6
+    assert len(periods) == 6 and (periods[0]["start"], periods[0]["end"]) == ("10:00", "11:00") and periods[1]["start"] == "11:05"
     assert {c["label"] for c in r["classes"]} == {"ZZ Course - Sem 1", "ZZ Course - Sem 3", "ZZ Course - Sem 5"}   # only the running classes
-    assert all(c["periods_available"] == 6 for c in r["classes"])
+    d = week(p1)
+    assert d[0] == {"day": 1, "name": "Monday", "short": "Mon", "working": True, "is_off": False, "end_time": None, "periods_available": 6}
+    assert [x["working"] for x in d] == [True] * 5 + [False]
     assert p1.api(p1.admin, "GET", "/api/timing").json()["school"] is None                           # admin: college view
     assert p1.api(p1.admin, "GET", f"/api/timing?school_id={p1.school}").json()["school"]["id"] == p1.school
     assert p1.api(p1.hod, "GET", f"/api/timing?school_id={p1.school_b}").status_code == 403
     assert p1.api(p1.teacher, "GET", "/api/timing").status_code == 403
-    assert db["days_per_week"] == 5
+
+
+def test_a_new_school_starts_with_the_real_lunch_time(p1):
+    r = p1.api(p1.admin, "POST", "/api/structure/schools", json={"name": f"ZZ Test School Lunch{RUN_ID}"})
+    assert r.status_code == 201
+    row = db_fetch("select lunch_start::text as s, lunch_end::text as e from public.school_timing where school_id = $1", uuid.UUID(r.json()["id"]))[0]
+    assert (row["s"], row["e"]) == ("13:10:00", "13:40:00")
+    assert p1.api(p1.admin, "DELETE", f"/api/structure/schools/{r.json()['id']}").status_code == 200
 
 
 def test_only_the_admin_sets_college_timing(p1):
@@ -365,9 +430,7 @@ def test_only_the_admin_sets_college_timing(p1):
     assert r.status_code == 200 and r.json()["college"]["days_per_week"] == 6
     grid = p1.api(p1.hod, "GET", "/api/timing").json()["grid"]["periods"]
     assert grid[0] == {"number": 1, "start": "09:00", "end": "09:50"} and grid[1]["start"] == "10:00"      # 10 min break
-    # back to the standard timing
-    body = {"college_start": "10:00", "college_end": "17:00", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5}
-    assert p1.api(p1.admin, "PUT", "/api/timing/college", json=body).status_code == 200
+    assert p1.api(p1.admin, "PUT", "/api/timing/college", json=REAL).status_code == 200                # back to the real timing
 
 
 @pytest.mark.parametrize("over", [
@@ -376,9 +439,9 @@ def test_only_the_admin_sets_college_timing(p1):
     {"college_end": "10:30"},   # not even one 60 minute lecture fits
 ])
 def test_college_timing_input_is_validated(p1, over):
-    body = {"college_start": "10:00", "college_end": "17:00", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5, **over}
+    body = {**REAL, **over}
     assert p1.api(p1.admin, "PUT", "/api/timing/college", json=body).status_code == 422, over
-    assert db_val("select college_end::text from public.college_settings") == "17:00:00"
+    assert db_val("select college_end::text from public.college_settings") == "16:50:00"
 
 
 def test_preview_builds_a_grid_without_saving(p1):
@@ -394,24 +457,24 @@ def test_preview_builds_a_grid_without_saving(p1):
 
 
 def test_hod_sets_lunch_for_his_school_and_the_grid_skips_it(p1):
-    r = p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "13:00", "lunch_end": "13:45"})
+    r = p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "13:10", "lunch_end": "13:40"})
     assert r.status_code == 200, r.text
     periods = r.json()["grid"]["periods"]
-    assert [(p["start"], p["end"]) for p in periods] == [("10:00", "11:00"), ("11:05", "12:05"), ("13:45", "14:45"), ("14:50", "15:50"), ("15:55", "16:55")]
-    assert any("lunch" in w for w in r.json()["warnings"])
-    assert p1.api(p1.hod, "GET", "/api/timing").json()["school"]["lunch_start"] == "13:00"
-    # the lunch of OTHER schools is untouched
-    assert db_val("select count(*) from public.school_timing where school_id = $1", uuid.UUID(p1.school_b)) == 0
+    assert [(p["start"], p["end"]) for p in periods] == [        # exactly the real School of IT day
+        ("10:00", "11:00"), ("11:05", "12:05"), ("12:10", "13:10"), ("13:40", "14:40"), ("14:45", "15:45"), ("15:50", "16:50")]
+    assert r.json()["warnings"] == []
+    assert p1.api(p1.hod, "GET", "/api/timing").json()["school"]["lunch_start"] == "13:10"
+    assert db_val("select count(*) from public.school_timing where school_id = $1", uuid.UUID(p1.school_b)) == 0   # other schools untouched
 
 
 @pytest.mark.parametrize("body", [
-    {"lunch_start": "13:45", "lunch_end": "13:00"}, {"lunch_start": "13:00", "lunch_end": "13:05"}, {"lunch_start": "12:00", "lunch_end": "15:00"},
+    {"lunch_start": "13:40", "lunch_end": "13:10"}, {"lunch_start": "13:00", "lunch_end": "13:05"}, {"lunch_start": "12:00", "lunch_end": "15:00"},
     {"lunch_start": "08:00", "lunch_end": "08:45"}, {"lunch_start": "16:30", "lunch_end": "17:30"}, {"lunch_start": "13:00"}, {"lunch_end": "13:45"},
     {"lunch_start": "xx", "lunch_end": "13:45"},
 ])
 def test_lunch_input_is_validated(p1, body):
     assert p1.api(p1.hod, "PUT", "/api/timing/school", json=body).status_code == 422, body
-    assert p1.api(p1.hod, "GET", "/api/timing").json()["school"]["lunch_start"] == "13:00"      # still the old value
+    assert p1.api(p1.hod, "GET", "/api/timing").json()["school"]["lunch_start"] == "13:10"      # still the old value
 
 
 def test_lunch_school_locking_and_admin_override(p1):
@@ -420,30 +483,59 @@ def test_lunch_school_locking_and_admin_override(p1):
     assert p1.api(p1.admin, "PUT", "/api/timing/school", json={"lunch_start": "13:00", "lunch_end": "13:30"}).status_code == 422   # admin must name the school
     r = p1.api(p1.admin, "PUT", "/api/timing/school", json={"school_id": p1.school, "lunch_start": "13:00", "lunch_end": "13:30"})
     assert r.status_code == 200 and p1.api(p1.hod, "GET", "/api/timing").json()["school"]["lunch_end"] == "13:30"
-    r = p1.api(p1.admin, "PUT", "/api/timing/school", json={"school_id": p1.school, "lunch_start": "13:00", "lunch_end": "13:45"})
+    r = p1.api(p1.admin, "PUT", "/api/timing/school", json={"school_id": p1.school, "lunch_start": "13:10", "lunch_end": "13:40"})
     assert r.status_code == 200
     assert db_val("select count(*) from public.school_timing where school_id = $1", uuid.UUID(p1.school_b)) == 0
     assert p1.api(p1.admin, "PUT", "/api/timing/school", json={"school_id": str(uuid.uuid4()), "lunch_start": "13:00", "lunch_end": "13:30"}).status_code == 404
 
 
-def test_early_release_per_class(p1):
-    s1, s3 = sem(p1, 1), sem(p1, 3)
-    r = p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": "15:00"})
-    assert r.status_code == 200 and r.json()["periods_available"] == 3                  # 10-11, 11:05-12:05, 13:45-14:45
-    cls = {c["label"]: c for c in p1.api(p1.hod, "GET", "/api/timing").json()["classes"]}
-    assert cls["ZZ Course - Sem 1"]["early_release_time"] == "15:00" and cls["ZZ Course - Sem 3"]["periods_available"] == 5   # others run the full day
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": "17:00"}).status_code == 422      # not before closing
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": "10:30"}).status_code == 422      # no lecture fits
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": "bad"}).status_code == 422
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{sem(p1, 2)}", json={"early_release_time": "15:00"}).status_code == 409   # does not run
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{p1.b_sems[1]}", json={"early_release_time": "15:00"}).status_code == 404  # other school
-    assert p1.api(p1.teacher, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": "15:00"}).status_code == 403
-    assert db_val("select early_release_time from public.semesters where id = $1", uuid.UUID(p1.b_sems[1])) is None
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{s1}", json={"early_release_time": None}).json()["periods_available"] == 5   # cleared
+def test_day_wise_schedule_one_end_time_for_the_week_then_single_days(p1):
+    s1 = sem(p1, 1)
+    # "set one end time for the whole week", then change single days
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{s1}/days", json={"days": [{"day": d, "end_time": "14:40"} for d in range(1, 6)]})
+    assert r.status_code == 200, r.text
+    assert [d["periods_available"] for d in r.json()["days"]] == [4, 4, 4, 4, 4, 0]       # P1-P4 end at 14:40; Saturday is not a working day
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{s1}/days", json={"days": [{"day": 4, "end_time": "15:45"}, {"day": 5, "is_off": True}]})
+    d = r.json()["days"]
+    assert [x["periods_available"] for x in d] == [4, 4, 4, 5, 0, 0]
+    assert d[3]["end_time"] == "15:45" and d[4]["is_off"] is True and d[4]["end_time"] is None and d[0]["end_time"] == "14:40"
+    assert week(p1) == d                                                                      # the screen sees the same week
+    assert [x["periods_available"] for x in week(p1, "ZZ Course - Sem 3")] == [6, 6, 6, 6, 6, 0]    # other classes: untouched
+    # back to a normal full day: no end time and not OFF
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{s1}/days", json={"days": [{"day": x} for x in range(1, 6)]})
+    assert [x["periods_available"] for x in r.json()["days"]] == [6, 6, 6, 6, 6, 0]
+    assert db_val("select count(*) from public.semester_days where semester_id = $1", uuid.UUID(s1)) == 0
+
+
+@pytest.mark.parametrize("days", [
+    [{"day": 6, "end_time": "14:40"}],                          # Saturday is not a working day (5-day week)
+    [{"day": 1, "end_time": "16:50"}], [{"day": 1, "end_time": "17:30"}],   # not before the closing time
+    [{"day": 1, "end_time": "10:30"}],                          # not even one lecture fits
+    [{"day": 1, "end_time": "14:40"}, {"day": 1, "is_off": True}],   # listed twice
+    [{"day": 1, "is_off": True, "end_time": "14:40"}],          # OFF has no end time
+    [{"day": 0}], [{"day": 7}], [], [{"day": 1, "end_time": "bad"}], [{"day": 1, "unknown": 1}],
+])
+def test_day_schedule_input_is_validated(p1, days):
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{sem(p1, 1)}/days", json={"days": days})
+    assert r.status_code == 422, (days, r.text)
+    assert db_val("select count(*) from public.semester_days where semester_id = $1", uuid.UUID(sem(p1, 1))) == 0
+    if days and days[0].get("day") == 6:
+        assert "day-6" in fields(r)
+
+
+def test_day_schedule_roles_term_and_school_locking(p1, live):
+    ok = {"days": [{"day": 1, "end_time": "14:40"}]}
+    assert p1.api(p1.teacher, "PUT", f"/api/timing/semesters/{sem(p1, 1)}/days", json=ok).status_code == 403
+    assert p1.api(p1.hod, "PUT", f"/api/timing/semesters/{sem(p1, 2)}/days", json=ok).status_code == 409            # does not run this term
+    assert p1.api(p1.hod, "PUT", f"/api/timing/semesters/{p1.b_sems[1]}/days", json=ok).status_code == 404          # another school
+    r = live["hod"].client.put(f"/api/timing/semesters/{sem(p1, 1)}/days", json=ok, headers=bearer(live["hod"].token))
+    assert r.status_code == 404                                                                                     # HOD of the real School of IT
+    assert db_val("select count(*) from public.semester_days where school_id in ($1, $2)", uuid.UUID(p1.school), uuid.UUID(p1.school_b)) == 0
+    assert p1.api(p1.admin, "PUT", f"/api/timing/semesters/{sem(p1, 1)}/days", json={"days": [{"day": 1}]}).status_code == 200   # admin may do it
 
 
 # ====================================================================================================
-# 4) FIXED SLOTS (PE / SOL double blocks)
+# 4) FIXED SLOTS (PE / SOL double blocks)   - real timing: P1 10:00 ... P3 12:10-13:10 | lunch | P4 13:40 ... P6 15:50-16:50
 # ====================================================================================================
 def slot(p1, who, n, day, start, kind="PE", **over):
     body = {"semester_id": sem(p1, n), "day": day, "start_period": start, "kind": kind}
@@ -451,42 +543,67 @@ def slot(p1, who, n, day, start, kind="PE", **over):
     return p1.api(who, "POST", "/api/fixed-slots", json=body)
 
 
+def set_days(p1, n, days):
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{sem(p1, n)}/days", json={"days": days})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def get_slots(p1):
+    return {s["id"]: s for s in p1.api(p1.hod, "GET", "/api/fixed-slots").json()["slots"]}
+
+
 def test_pe_and_sol_are_always_double_blocks(p1):
     r = slot(p1, p1.hod, 1, 1, 1, "PE", length=1)                         # the client even asks for 1 - it becomes 2
-    assert r.status_code == 201 and r.json()["length"] == 2
+    assert r.status_code == 201 and r.json()["length"] == 2 and r.json()["notes"] == []
     S["pe"] = r.json()["id"]
-    r = slot(p1, p1.hod, 1, 2, 3, "SOL", length=5)
+    r = slot(p1, p1.hod, 1, 2, 3, "SOL", length=5)                        # Period 3 + Period 4 = AROUND LUNCH, like the real SOL III
     assert r.status_code == 201 and r.json()["length"] == 2
+    assert any("lunch" in n.lower() for n in r.json()["notes"])           # a friendly note, not a refusal
     S["sol"] = r.json()["id"]
     data = p1.api(p1.hod, "GET", "/api/fixed-slots").json()
     pe = next(s for s in data["slots"] if s["id"] == S["pe"])
-    assert (pe["length"], pe["time"], pe["day_name"], pe["problems"]) == (2, "10:00-12:05", "Monday", [])
+    assert (pe["length"], pe["time"], pe["day_name"], pe["problems"], pe["notes"]) == (2, "10:00-12:05", "Monday", [], [])
     assert pe["subject_id"] == S["pe1"]                                    # linked to the class's own PE subject automatically
     sol = next(s for s in data["slots"] if s["id"] == S["sol"])
-    assert sol["time"] == "13:45-15:50" and sol["label"] == "Science of Living (SOL)"
+    assert sol["time"] == "12:10-14:40" and sol["label"] == "Science of Living (SOL)" and sol["problems"] == []
+    assert any("lunch" in n.lower() for n in sol["notes"])
     cls = {c["label"]: c for c in data["classes"]}
     assert cls["ZZ Course - Sem 1"]["has_pe"] and cls["ZZ Course - Sem 1"]["has_sol"]
     assert not cls["ZZ Course - Sem 3"]["has_pe"] and not cls["ZZ Course - Sem 3"]["has_sol"]
+    assert len(cls["ZZ Course - Sem 1"]["days"]) == 6
     assert db_val("select length from public.fixed_slots where id = $1", uuid.UUID(S["pe"])) == 2
 
 
-def test_double_block_across_lunch_is_refused_with_a_clear_reason(p1):
-    r = slot(p1, p1.hod, 3, 3, 2, "PE")                                    # periods 2+3 are separated by lunch
-    assert r.status_code == 422 and r.json()["code"] == "SLOT_NOT_POSSIBLE"
-    assert "lunch" in r.json()["message"].lower() and r.json()["problems"]
-    c = p1.api(p1.hod, "POST", "/api/fixed-slots/check", json={"semester_id": sem(p1, 3), "day": 3, "start_period": 2, "kind": "PE"})
-    assert c.status_code == 200 and c.json()["ok"] is False and "lunch" in c.json()["problems"][0].lower()
-    ok = p1.api(p1.hod, "POST", "/api/fixed-slots/check", json={"semester_id": sem(p1, 3), "day": 3, "start_period": 3, "kind": "PE"})
-    assert ok.json() == {"ok": True, "problems": [], "length": 2}
+def test_double_blocks_around_lunch_pass_the_check(p1):
+    for start in (3, 2):                                                  # P3+P4 (lunch between) and P2+P3 (plain break between)
+        c = p1.api(p1.hod, "POST", "/api/fixed-slots/check", json={"semester_id": sem(p1, 3), "day": 3, "start_period": start, "kind": "PE"})
+        assert c.status_code == 200 and c.json()["ok"] is True and c.json()["problems"] == [], c.text
+    assert any("lunch" in n.lower() for n in p1.api(p1.hod, "POST", "/api/fixed-slots/check", json={"semester_id": sem(p1, 3), "day": 3, "start_period": 3, "kind": "PE"}).json()["notes"])
     assert db_val("select count(*) from public.fixed_slots where semester_id = $1", uuid.UUID(sem(p1, 3))) == 0    # check never saves
 
 
-def test_slot_after_early_release_or_off_the_grid_is_refused(p1):
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{sem(p1, 3)}", json={"early_release_time": "15:00"}).status_code == 200
-    r = slot(p1, p1.hod, 3, 4, 3, "PE")                                    # periods 3+4: 4 ends 15:50 > 15:00
-    assert r.status_code == 422 and "early-release" in r.json()["message"]
-    assert slot(p1, p1.hod, 3, 4, 3, "OTHER", length=1, label="Seminar").status_code == 201     # period 3 alone ends 14:45 - fine
-    r = slot(p1, p1.hod, 1, 4, 5, "PE")                                    # period 5 + 6: the day has only 5
+def test_slot_after_the_days_end_time_or_on_an_off_day_is_refused(p1):
+    set_days(p1, 3, [{"day": 4, "end_time": "14:40"}, {"day": 5, "is_off": True}])                  # Thu ends 14:40, Fri is OFF (e.g. OJT)
+    r = slot(p1, p1.hod, 3, 4, 4, "PE")                                    # P4+P5: P5 ends 15:45 > 14:40
+    assert r.status_code == 422 and r.json()["code"] == "SLOT_NOT_POSSIBLE" and "end time on Thursday (14:40)" in r.json()["message"]
+    ok = slot(p1, p1.hod, 3, 4, 3, "PE")                                   # P3+P4 end exactly at 14:40 - fine, AND around lunch
+    assert ok.status_code == 201
+    assert slot(p1, p1.hod, 3, 4, 5, "OTHER", length=1, label="Seminar").status_code == 422          # P5 alone is also too late
+    r = slot(p1, p1.hod, 3, 5, 1, "OTHER", length=1, label="Seminar")
+    assert r.status_code == 422 and "no lectures on Friday" in r.json()["message"] and r.json()["problems"]
+    r = slot(p1, p1.hod, 3, 5, 1, "PE")
+    assert r.status_code == 422 and "OFF" in r.json()["message"]
+    assert slot(p1, p1.hod, 3, 4, 3, "OTHER", length=1, label="Seminar").status_code == 422          # overlaps the PE just created
+    assert p1.api(p1.hod, "DELETE", f"/api/fixed-slots/{ok.json()['id']}").status_code == 200
+    set_days(p1, 3, [{"day": 4}, {"day": 5}])                              # back to full days
+    assert slot(p1, p1.hod, 3, 5, 1, "OTHER", length=1, label="Seminar").status_code == 201          # Friday works again
+    S["seminar3"] = next(s["id"] for s in get_slots(p1).values() if s["label"] == "Seminar")
+    assert p1.api(p1.hod, "DELETE", f"/api/fixed-slots/{S['seminar3']}").status_code == 200
+
+
+def test_slots_off_the_grid_or_the_calendar_are_refused(p1):
+    r = slot(p1, p1.hod, 1, 4, 6, "PE")                                    # period 6 + 7: the day has only 6 periods
     assert r.status_code == 422 and "do not exist" in r.json()["message"]
     r = slot(p1, p1.hod, 1, 6, 1, "PE")                                    # Saturday, 5-day week
     assert r.status_code == 422 and "not a working day" in r.json()["message"]
@@ -494,18 +611,21 @@ def test_slot_after_early_release_or_off_the_grid_is_refused(p1):
     assert slot(p1, p1.hod, 1, 1, 0, "PE").status_code == 422
     assert slot(p1, p1.hod, 1, 1, 1, "GYM").status_code == 422
     assert slot(p1, p1.hod, 1, 5, 1, "OTHER").status_code == 422             # an 'other' slot needs a name
-    assert p1.api(p1.hod, "PATCH", f"/api/timing/semesters/{sem(p1, 3)}", json={"early_release_time": None}).status_code == 200
+    assert slot(p1, p1.hod, 1, 5, 1, "OTHER", label="x" * 81).status_code == 422
+    assert slot(p1, p1.hod, 1, 5, 1, "PE", unknown=1).status_code == 422
 
 
-def test_overlaps_are_refused_for_the_class_and_for_the_teacher(p1):
+def test_overlaps_are_refused_for_the_class_and_for_the_teachers(p1):
     r = slot(p1, p1.hod, 1, 1, 2, "OTHER", length=1, label="Quiz")        # Monday P2 is inside the PE block P1-P2
     assert r.status_code == 422 and "already has" in r.json()["message"]
-    t = S["plain"]["id"]
-    assert p1.api(p1.hod, "PATCH", f"/api/users/{S['plain']['id']}", json={"subject_ids": [S["dbms"], S["ai"], S["pe1"]]}).status_code == 200
-    ok = slot(p1, p1.hod, 1, 5, 1, "OTHER", length=1, label="Seminar", teacher_id=t)
+    plain, t2 = S["plain"]["id"], S["t2"]["id"]
+    ok = slot(p1, p1.hod, 1, 5, 1, "OTHER", length=1, label="Seminar", teacher_id=plain)
     assert ok.status_code == 201
-    r = slot(p1, p1.hod, 5, 5, 1, "OTHER", length=1, label="Guest lecture", teacher_id=t)       # the same teacher, another class, same time
+    S["seminar"] = ok.json()["id"]
+    r = slot(p1, p1.hod, 5, 5, 1, "OTHER", length=1, label="Guest lecture", teacher_id=plain)       # the same teacher, another class, same time
     assert r.status_code == 422 and "already in a locked slot" in r.json()["message"]
+    r = slot(p1, p1.hod, 5, 5, 1, "OTHER", length=1, label="Guest lecture", teacher_id=t2, co_teacher_id=plain)   # ... or as the CO-teacher
+    assert r.status_code == 422 and "Tea plain is already in a locked slot" in r.json()["message"]
 
     async def sneaky():
         conn = await connect_one()
@@ -518,48 +638,64 @@ def test_overlaps_are_refused_for_the_class_and_for_the_teacher(p1):
 
     with pytest.raises(asyncpg.ExclusionViolationError):                     # the DATABASE refuses overlaps as well
         run(sneaky())
-    S["seminar"] = ok.json()["id"]
 
 
-def test_teacher_and_subject_rules_for_locked_slots(p1):
-    vis = S["vis"]["id"]                                                      # visiting: Tue + Thu only
+def test_teacher_co_teacher_and_subject_rules_for_locked_slots(p1):
+    vis, plain, t2 = S["vis"]["id"], S["plain"]["id"], S["t2"]["id"]                # vis: Tue + Thu only
     r = slot(p1, p1.hod, 5, 1, 1, "OTHER", length=1, label="Guest", teacher_id=vis)             # Monday
     assert r.status_code == 422 and "visiting faculty" in r.json()["message"]
-    assert slot(p1, p1.hod, 5, 2, 1, "OTHER", length=1, label="Guest", teacher_id=vis).status_code == 201     # Tuesday is fine
-    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="Talk", teacher_id=S["t2"]["id"], subject_id=S["ai"])
+    r = slot(p1, p1.hod, 5, 1, 1, "OTHER", length=1, label="Guest", teacher_id=t2, co_teacher_id=vis)   # the co-teacher is visiting too
+    assert r.status_code == 422 and "Tea visiting is visiting faculty" in r.json()["message"]
+    ok = slot(p1, p1.hod, 5, 2, 1, "OTHER", length=1, label="Guest", teacher_id=vis)            # Tuesday is fine
+    assert ok.status_code == 201
+    S["guest"] = ok.json()["id"]
+    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="Talk", teacher_id=t2, subject_id=S["ai"])
     assert r.status_code == 422 and "cannot teach" in r.json()["message"]
+    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="Talk", teacher_id=plain, co_teacher_id=t2, subject_id=S["ai"])   # the CO-teacher cannot teach it
+    assert r.status_code == 422 and "Tea second cannot teach" in r.json()["message"]
+    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="Talk", teacher_id=t2, co_teacher_id=t2)
+    assert r.status_code == 422 and "two different people" in r.json()["message"]
+    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="Talk", co_teacher_id=plain)
+    assert r.status_code == 422 and "main teacher" in r.json()["message"]
     r = slot(p1, p1.hod, 3, 3, 1, "OTHER", length=1, label="Talk", subject_id=S["dbms"])        # DBMS belongs to Sem 5, not Sem 3
     assert r.status_code == 422 and "does not belong" in r.json()["message"]
     assert slot(p1, p1.hod, 3, 3, 1, "OTHER", length=1, label="Talk", teacher_id=p1.teacher_b.account.user_id).status_code == 422   # other school
-    r = slot(p1, p1.hod, 5, 3, 1, "OTHER", length=1, label="DBMS tutorial", subject_id=S["dbms"])
-    assert r.status_code == 201
-    # the teacher is taken from the assignment (Tea second teaches DBMS)
-    got = next(s for s in p1.api(p1.hod, "GET", "/api/fixed-slots").json()["slots"] if s["id"] == r.json()["id"])
-    assert got["teacher_id"] == S["t2"]["id"] and got["subject_name"] == "Database Management"
-    # an active teacher in a locked slot cannot be deactivated
-    assert p1.api(p1.hod, "POST", f"/api/users/{vis}/deactivate").status_code == 409
+
+    # teacher AND co-teacher are taken from the assignment (DBMS: Tea second + co-teacher Tea plain)
+    r = slot(p1, p1.hod, 5, 3, 2, "OTHER", length=1, label="DBMS tutorial", subject_id=S["dbms"])
+    assert r.status_code == 201, r.text
+    got = get_slots(p1)[r.json()["id"]]
+    assert (got["teacher_id"], got["co_teacher_id"], got["co_teacher_name"], got["subject_name"]) == (t2, plain, "Tea plain", "Database Management")
+    assert p1.api(p1.hod, "POST", f"/api/users/{vis}/deactivate").status_code == 409            # a person in a locked slot cannot be deactivated
+    assert p1.api(p1.hod, "POST", f"/api/users/{plain}/deactivate").status_code == 409
 
 
-def test_slots_become_flagged_when_the_timing_changes(p1):
-    r = p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "11:30", "lunch_end": "12:15"})   # now cuts through the Monday PE block
+def test_a_slot_is_flagged_when_the_class_schedule_changes_later(p1):
+    r = p1.api(p1.hod, "PUT", f"/api/timing/semesters/{sem(p1, 1)}/days", json={"days": [{"day": 1, "end_time": "11:00"}]})   # Monday now ends at 11:00
     assert r.status_code == 200 and any("locked slot" in w for w in r.json()["warnings"])
-    data = p1.api(p1.hod, "GET", "/api/fixed-slots").json()
-    pe = next(s for s in data["slots"] if s["id"] == S["pe"])
-    assert pe["problems"] and "lunch" in " ".join(pe["problems"]).lower()
-    assert p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "13:00", "lunch_end": "13:45"}).status_code == 200
-    assert next(s for s in p1.api(p1.hod, "GET", "/api/fixed-slots").json()["slots"] if s["id"] == S["pe"])["problems"] == []
+    pe = get_slots(p1)[S["pe"]]                                            # Monday P1+P2: P2 ends 12:05
+    assert pe["problems"] and "end time on Monday (11:00)" in " ".join(pe["problems"])
+    assert get_slots(p1)[S["sol"]]["problems"] == []                       # other days are fine
+    # the same with the lunch: a different lunch time never breaks a double block any more
+    assert p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "11:30", "lunch_end": "12:15"}).status_code == 200
+    assert p1.api(p1.hod, "PUT", "/api/timing/school", json={"lunch_start": "13:10", "lunch_end": "13:40"}).status_code == 200
+    set_days(p1, 1, [{"day": 1}])
+    assert get_slots(p1)[S["pe"]]["problems"] == []
 
 
 def test_move_and_delete_a_slot(p1):
-    r = p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 3, "start_period": 1})
-    assert r.status_code == 200
-    moved = next(s for s in p1.api(p1.hod, "GET", "/api/fixed-slots").json()["slots"] if s["id"] == S["pe"])
-    assert (moved["day"], moved["start_period"], moved["length"]) == (3, 1, 2)
+    r = p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 3, "start_period": 3})   # P3+P4: around lunch is fine
+    assert r.status_code == 200 and any("lunch" in n.lower() for n in r.json()["notes"])
+    moved = get_slots(p1)[S["pe"]]
+    assert (moved["day"], moved["start_period"], moved["length"], moved["time"]) == (3, 3, 2, "12:10-14:40")
     r = p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 2, "start_period": 3})       # clashes with SOL (Tue P3-P4)
     assert r.status_code == 422 and "already has" in r.json()["message"]
-    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"start_period": 2}).status_code == 422   # across lunch
+    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"start_period": 6}).status_code == 422   # off the end of the day
     assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"length": 9}).status_code == 422
-    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 1, "start_period": 1}).status_code == 200   # a slot may be moved onto its own old place
+    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 1, "start_period": 1}).status_code == 200   # back to Monday P1
+    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"day": 1, "start_period": 1}).status_code == 200   # a slot may be moved onto its own place
+    assert p1.api(p1.hod, "PATCH", f"/api/fixed-slots/{S['pe']}", json={"note": "Ground floor"}).status_code == 200
+    assert get_slots(p1)[S["pe"]]["note"] == "Ground floor"
     assert p1.api(p1.hod, "DELETE", f"/api/fixed-slots/{S['sol']}").status_code == 200
     assert p1.api(p1.hod, "DELETE", f"/api/fixed-slots/{S['sol']}").status_code == 404
     cls = {c["label"]: c for c in p1.api(p1.hod, "GET", "/api/fixed-slots").json()["classes"]}
@@ -683,7 +819,6 @@ def test_other_schools_calendar_entries_are_invisible_and_untouchable(p1, live):
     assert cal(p1, p1.hod, title="ZZ X", school_id=p1.school_b).status_code == 403
     assert cal(p1, p1.hod, title="ZZ X", semester_ids=[p1.b_sems[1]]).status_code == 422
     assert db_val("select title from public.calendar_entries where id = $1", b_entry) == "ZZ B Only"
-    # teachers only read
     assert cal(p1, p1.teacher, title="ZZ T").status_code == 403
     assert p1.api(p1.teacher, "DELETE", f"/api/calendar/{mine}").status_code == 403
     assert cal(p1, p1.admin, title="ZZ Admin made").status_code == 422                          # admin: school entry needs a school (or scope=college)
@@ -736,7 +871,6 @@ def test_semester_dates(p1):
     assert p1.api(p1.teacher, "GET", f"/api/terms/{term}/dates").status_code == 403
     assert p1.api(p1.teacher, "PUT", f"/api/terms/{term}/dates", json={"items": items}).status_code == 403
     assert p1.api(p1.admin, "GET", f"/api/terms/{term}/dates?school_id={p1.school}").status_code == 200
-    # dates of an old (not active) term cannot be changed
-    old = db_val("insert into public.academic_terms (kind, year) values ('even', 2031) returning id")
+    old = db_val("insert into public.academic_terms (kind, year) values ('even', 2031) returning id")   # (removed again by the test clean-up)
     assert p1.api(p1.hod, "PUT", f"/api/terms/{old}/dates", json={"items": items}).status_code == 409
     assert p1.api(p1.hod, "PUT", f"/api/terms/{uuid.uuid4()}/dates", json={"items": items}).status_code == 404

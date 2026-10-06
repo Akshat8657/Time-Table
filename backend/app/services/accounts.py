@@ -114,7 +114,7 @@ async def set_teachable_subjects(
         from public.assignments a
         join public.subjects s on s.id = a.subject_id
         join public.academic_terms t on t.id = a.term_id
-        where a.teacher_id = $1 and not (a.subject_id = any($2::uuid[]))
+        where (a.teacher_id = $1 or a.co_teacher_id = $1) and not (a.subject_id = any($2::uuid[]))
         """,
         teacher_id, list(wanted),
     )
@@ -160,7 +160,7 @@ async def create_account(
         raise ApiError(409, "ALREADY_EXISTS", "An account with this email address already exists.",
                        extra={"fields": {"email": "This email address is already in use."}})
     if subject_ids:  # fail early, before a login is created
-        async with db.pool().acquire() as conn:
+        async with db.acquire() as conn:
             await check_subjects_in_school(conn, subject_ids, school_id)
 
     temp = generate_temp_password()
@@ -220,9 +220,9 @@ async def set_active(auth: SupabaseAuth, actor: CurrentUser, target: asyncpg.Rec
             busy = await conn.fetchval(
                 """
                 select (select count(*) from public.assignments a join public.academic_terms t on t.id = a.term_id
-                        where a.teacher_id = $1 and t.is_active)
+                        where (a.teacher_id = $1 or a.co_teacher_id = $1) and t.is_active)
                      + (select count(*) from public.fixed_slots f join public.academic_terms t on t.id = f.term_id
-                        where f.teacher_id = $1 and t.is_active)
+                        where (f.teacher_id = $1 or f.co_teacher_id = $1) and t.is_active)
                 """,
                 target["id"],
             )

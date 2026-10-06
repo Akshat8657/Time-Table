@@ -91,7 +91,7 @@ netstat -ano | findstr /R /C:":5173 .*LISTENING" >nul && set "FRONT_UP=1"
 if defined BACK_UP if defined FRONT_UP (
   echo.
   echo  TimeTablePro pehle se chal raha hai. Browser khol raha hoon...
-  start "" "http://localhost:5173"
+  if not defined TT_NO_BROWSER start "" "http://localhost:5173"
   if not defined TT_SILENT ping -n 4 127.0.0.1 >nul
   exit /b 0
 )
@@ -120,7 +120,7 @@ echo   Browser me khulega:  http://localhost:5173
 echo   Band karne ke liye:  "Stop TimeTablePro" par double-click
 echo   Koi dikkat ho to dekho:  logs\start.log, logs\backend.log, logs\frontend.log
 echo  ==================================================
-start "" "http://localhost:5173"
+if not defined TT_NO_BROWSER start "" "http://localhost:5173"
 if not defined TT_SILENT ping -n 5 127.0.0.1 >nul
 exit /b 0
 

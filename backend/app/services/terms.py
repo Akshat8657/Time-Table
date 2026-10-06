@@ -55,7 +55,7 @@ def require_active_semester(term: asyncpg.Record, semester_number: int, label: s
 
 # --- one SQL snippet reused everywhere: semester + course + parity, optionally only the running ones
 SEMESTER_SELECT = """
-select sm.id, sm.school_id, sm.course_id, sm.number, sm.early_release_time,
+select sm.id, sm.school_id, sm.course_id, sm.number,
        c.name as course_name, c.code as course_code, c.is_active as course_active
 from public.semesters sm
 join public.courses c on c.id = sm.course_id
