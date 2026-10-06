@@ -1,0 +1,4 @@
+# Only needed for running the automated self-tests (not needed for start.bat)
+-r requirements.txt
+pytest>=9.1,<10
+pytest-asyncio>=1.4,<2

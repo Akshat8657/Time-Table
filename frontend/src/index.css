@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* Dark mode is switched by <html data-theme="dark"> (set before first paint by index.html) */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ------------------------------------------------------------------
+   Design tokens. Every colour in the app comes from here, so light and
+   dark mode (and any future re-branding) are a one-place change.
+------------------------------------------------------------------- */
+:root {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #f8f9fd;
+  --surface-hover: #eff2fa;
+  --border: #e2e6f0;
+  --border-strong: #cdd3e3;
+  --text: #0f172a;
+  --text-muted: #556079;
+  --text-subtle: #8791a8;
+
+  --brand-solid: #4f46e5;
+  --brand-solid-hover: #4338ca;
+  --brand-text: #4338ca;
+  --brand-soft: #eceefe;
+  --brand-ring: rgba(79, 70, 229, 0.32);
+
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-line: #fbcaca;
+  --warning: #92400e;
+  --warning-soft: #fffbeb;
+  --warning-line: #f6dd8f;
+  --success: #166534;
+  --success-soft: #f0fdf4;
+  --success-line: #b7eccb;
+  --info: #1e40af;
+  --info-soft: #eff6ff;
+  --info-line: #bfd6fb;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 28px -8px rgba(15, 23, 42, 0.12);
+  --shadow-pop: 0 2px 6px rgba(15, 23, 42, 0.06), 0 18px 48px -12px rgba(15, 23, 42, 0.22);
+  --glow-a: rgba(99, 102, 241, 0.16);
+  --glow-b: rgba(14, 165, 233, 0.1);
+}
+
+[data-theme="dark"] {
+  --bg: #0a0e1d;
+  --surface: #111733;
+  --surface-2: #0e132b;
+  --surface-hover: #19214a;
+  --border: #232c55;
+  --border-strong: #34406f;
+  --text: #e9edfa;
+  --text-muted: #a3adcc;
+  --text-subtle: #7782a5;
+
+  --brand-solid: #5b54f0;
+  --brand-solid-hover: #6d67f5;
+  --brand-text: #a5b0ff;
+  --brand-soft: #1b2250;
+  --brand-ring: rgba(129, 140, 248, 0.45);
+
+  --danger: #fca5a5;
+  --danger-soft: #2a1520;
+  --danger-line: #5d2a38;
+  --warning: #f5cf7a;
+  --warning-soft: #2a2213;
+  --warning-line: #5d4a1f;
+  --success: #86e0a5;
+  --success-soft: #112a1d;
+  --success-line: #1f5a3a;
+  --info: #9cc0ff;
+  --info-soft: #11213f;
+  --info-line: #26457d;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 32px -8px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.35), 0 22px 56px -12px rgba(0, 0, 0, 0.7);
+  --glow-a: rgba(99, 102, 241, 0.22);
+  --glow-b: rgba(14, 165, 233, 0.12);
+}
+
+/* Map the tokens to Tailwind utility names: bg-surface, text-muted, border-line, bg-brand ... */
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hover: var(--surface-hover);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+
+  --color-brand: var(--brand-solid);
+  --color-brand-hover: var(--brand-solid-hover);
+  --color-brand-text: var(--brand-text);
+  --color-brand-soft: var(--brand-soft);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  * {
+    border-color: var(--border);
+  }
+  ::selection {
+    background: var(--brand-ring);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand-solid);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  /* nicer scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/* soft background used by the login / full-page screens */
+.page-glow {
+  background:
+    radial-gradient(60rem 32rem at 12% -10%, var(--glow-a), transparent 60%),
+    radial-gradient(48rem 28rem at 105% 8%, var(--glow-b), transparent 55%),
+    var(--bg);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+.animate-slide { animation: slide 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-2) 50%, var(--surface-hover) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
