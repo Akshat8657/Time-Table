@@ -5,7 +5,7 @@
 > Items marked ❓ are not confirmed yet — ask the user before seeding those, or seed with the stated default.
 > Teacher accounts: use dummy emails like firstname.lastname@school-it.test — NO real emails. Real emails can be set later by the college.
 
-Last updated: 06 Oct 2026 (V1)
+Last updated: 06 Oct 2026 (V2 — user confirmed B.Sc. PE/SOL fixed slots; B.Sc. Sem 5 AND Sem 7 have NO PE and NO SOL at all)
 
 ---
 
@@ -102,7 +102,7 @@ Weekly pattern: theory subject = its credits in lectures; its LAB = 1 double blo
 | VAC 1: Science of Living I | 2 | **SOL — fixed double block** | Dr. Dhaval Thaker |
 | PE, Sports & Yoga – I | 1 | **PE — fixed double block** | Mr. Sushant Singh ❓ |
 
-Fixed slots (from real timetable): **SOL I = Monday P5+P6 (2:45–4:50)** • **PE I = Tuesday P5+P6 (2:45–4:50)**
+Fixed slots (CONFIRMED by user): **SOL I = Monday P5+P6 (2:45–4:50)** • **PE I = Tuesday P5+P6 (2:45–4:50)**
 
 ### B.Sc. Sem 3 (Batch 2025) — Total 23 credits
 | Subject | Cr | Type | Teacher |
@@ -120,7 +120,7 @@ Fixed slots (from real timetable): **SOL I = Monday P5+P6 (2:45–4:50)** • **
 | VAC 3: Science of Living III | 2 | **SOL — fixed double block** | Ms. Subarna Ghosh |
 | PE, Sports & Yoga – III | 1 | **PE — fixed double block** | Mr. Sushant Singh |
 
-Fixed slots (from real timetable): **PE III = Monday P5+P6** • **SOL III = Thursday P3+P4 (12:10–1:10 + 1:40–2:40, lunch in between)**
+Fixed slots (CONFIRMED by user): **PE III = Monday P5+P6 (2:45–4:50)** • **SOL III = Thursday P3+P4 (12:10–1:10 + 1:40–2:40, lunch in between)**
 
 ### B.Sc. Sem 5 (Batch 2024) — Total 24 credits (no PE/SOL this sem)
 | Subject | Cr | Type | Teacher |
@@ -138,7 +138,7 @@ Fixed slots (from real timetable): **PE III = Monday P5+P6** • **SOL III = Thu
 | SEC 5 LAB | 1 | Lab | Maitri Hingu / Dr. Juhi Khengar ❓ |
 | VAC 5: Foundation of Indian Culture – I | 2 | Core | Prof. Nimesh Joshi |
 
-### B.Sc. Sem 7 (Batch 2023) — Total 22 credits — classes only Mon–Wed, Thu–Sat = OJT
+### B.Sc. Sem 7 (Batch 2023) — Total 22 credits — classes only Mon–Wed, Thu–Sat = OJT — NO PE/SOL (confirmed)
 | Subject | Cr | Type | Teacher |
 |---|---|---|---|
 | Major 17 [TRACK GROUP]: Pattern Recognition & Anomaly Detection (AI) ∥ Cryptography & Web App Security (Cyber) | 3 | Elective group, parallel | IBM Faculty |

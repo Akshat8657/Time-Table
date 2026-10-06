@@ -188,6 +188,7 @@ def server():
     env = os.environ.copy()
     env["LOGIN_MAX_FAILED_ATTEMPTS"] = str(LOCKOUT_AFTER)
     env["SESSION_CACHE_SECONDS"] = "0"  # these tests edit sessions straight in the database -> check it on every request
+    env["DB_POOL_MIN"], env["DB_POOL_MAX"] = "2", "3"  # the session pooler allows only 15 connections for ALL programs together
     # (the in-memory session cache has its own tests in test_p1_session_cache.py, on a second server)
     log_path = BACKEND_DIR / "tests" / "_server.log"
     log = open(log_path, "w", encoding="utf-8")

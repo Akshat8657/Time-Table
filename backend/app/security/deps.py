@@ -114,4 +114,5 @@ def require_roles(*roles: str, touch: bool = True) -> Callable[..., CurrentUser]
             raise forbidden()
         return user
 
+    dependency.allowed_roles = frozenset(allowed)  # type: ignore[attr-defined]  # lets the self-test check EVERY route automatically
     return dependency

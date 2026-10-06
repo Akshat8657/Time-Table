@@ -401,6 +401,30 @@ export default function SubjectsPage() {
                 rows={list}
                 rowKey={(s) => s.id}
                 empty={search || classId !== 'all' ? 'No subject matches.' : 'No subjects yet. Use “Add subject” or import an Excel sheet.'}
+                card={(s) => (
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink">{s.name}</p>
+                        <p className="text-[13px] text-muted">{s.code} · {s.class_label}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-0.5">
+                        <Button variant="ghost" size="sm" aria-label={`Edit ${s.name}`} icon={<Pencil className="size-4" />} onClick={() => setSubjectDialog({ subject: s })} />
+                        <Button variant="ghost" size="sm" aria-label={`Delete ${s.name}`} icon={<Trash2 className="size-4" />} onClick={() => setDeleteSubject(s)} />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Badge>{s.credits} credits</Badge>
+                      <Badge>{s.semester_hours} h</Badge>
+                      {s.special_kind && <Badge tone="warning">{s.special_kind} · double block</Badge>}
+                      {s.is_lab && <Badge tone="info">Lab</Badge>}
+                      {s.is_elective && <Badge tone="brand">Elective{s.elective_group_name ? ` · ${s.elective_group_name}` : ''}</Badge>}
+                    </div>
+                    <p className="mt-2 text-[13px] text-muted">
+                      {s.teacher_name ? `${s.teacher_name}${s.co_teacher_name ? ` + ${s.co_teacher_name}` : ''}` : 'No teacher assigned yet'}
+                    </p>
+                  </div>
+                )}
                 columns={[
                   {
                     key: 'name',

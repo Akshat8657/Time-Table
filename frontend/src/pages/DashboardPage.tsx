@@ -37,6 +37,7 @@ interface Setup {
   classes_with_pe?: number
   classes_with_sol?: number
   dates_set?: number
+  no_pe_sol_classes?: number
 }
 interface AdminOverview {
   schools: { id: string; name: string; is_active: boolean }[]
@@ -228,6 +229,7 @@ function Welcome({ role }: { role: Role }) {
 function SetupChecklist({ setup }: { setup: Setup | null | undefined }) {
   if (setup === undefined) return <Panel title="Setup checklist" icon={ListChecks}><Skeleton className="h-48" /></Panel>
   const n = (v?: number) => v ?? 0
+  const need = (s: Setup) => Math.max(0, n(s.classes) - n(s.no_pe_sol_classes)) // classes that are expected to have PE / SOL
   const steps = setup
     ? [
         { done: setup.term_set, label: 'Choose the active term', detail: setup.term_set ? 'Done' : 'Odd or even + year', to: '/hod/active-term' },
@@ -235,9 +237,9 @@ function SetupChecklist({ setup }: { setup: Setup | null | undefined }) {
         { done: n(setup.subjects) > 0, label: 'Add subjects, credits, labs and electives', detail: `${n(setup.subjects)} ${n(setup.subjects) === 1 ? 'subject' : 'subjects'} in the running classes`, to: '/hod/subjects' },
         { done: n(setup.subjects) > 0 && n(setup.assigned) >= n(setup.subjects), label: 'Give every subject a teacher', detail: `${n(setup.assigned)} of ${n(setup.subjects)} assigned`, to: '/hod/assignment' },
         {
-          done: n(setup.classes) > 0 && n(setup.classes_with_pe) >= n(setup.classes) && n(setup.classes_with_sol) >= n(setup.classes),
+          done: need(setup) > 0 && n(setup.classes_with_pe) >= need(setup) && n(setup.classes_with_sol) >= need(setup),
           label: 'Fix PE and SOL for every class',
-          detail: `PE ${n(setup.classes_with_pe)}/${n(setup.classes)} · SOL ${n(setup.classes_with_sol)}/${n(setup.classes)} classes`,
+          detail: `PE ${n(setup.classes_with_pe)}/${need(setup)} · SOL ${n(setup.classes_with_sol)}/${need(setup)} classes${n(setup.no_pe_sol_classes) ? ` (${n(setup.no_pe_sol_classes)} without PE / SOL)` : ''}`,
           to: '/hod/fixed-slots',
         },
         { done: n(setup.classes) > 0 && n(setup.dates_set) >= n(setup.classes), label: 'Set the semester start and end dates', detail: `${n(setup.dates_set)} of ${n(setup.classes)} classes`, to: '/hod/active-term' },

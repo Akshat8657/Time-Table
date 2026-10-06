@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Logging out / deactivating / password reset always clear it at once; the delay only matters for edits made
     # directly in the database.
     session_cache_seconds: float = 5.0
+    # The Supabase session pooler accepts only 15 connections IN TOTAL (this app + scripts + tests together).
+    db_pool_min: int = 3
+    db_pool_max: int = 6
 
     # ------------------------------------------------------------------ validators
     @field_validator("supabase_url", mode="before")

@@ -14,6 +14,7 @@ import { SearchBox } from '../components/SearchBox'
 import { SelectField } from '../components/Select'
 import { api, ApiError } from '../lib/api'
 import type { CourseInfo, CreatedAccount, SchoolTree, StructureTree } from '../lib/types'
+import { useSchoolScope } from '../lib/scope'
 import { useAction } from '../lib/useAction'
 import { useApi } from '../lib/useApi'
 
@@ -162,7 +163,13 @@ function CourseForm({ dialog, onClose, onDone }: { dialog: CourseDialog; onClose
 }
 
 export default function CollegeSetupPage() {
-  const { data, error, loading, reload } = useApi<StructureTree>('/structure/tree')
+  const { data, error, loading, reload: reloadTree } = useApi<StructureTree>('/structure/tree')
+  const scope = useSchoolScope()
+  // every change of a school (or its HOD) must also refresh the school list used by the other screens
+  const reload = () => {
+    reloadTree()
+    void scope.refreshSchools()
+  }
   const { run } = useAction()
   const [search, setSearch] = useState('')
   const [schoolDialog, setSchoolDialog] = useState<SchoolDialog>(null)

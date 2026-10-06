@@ -42,16 +42,16 @@ function toDraft(t: TimingPayload): Draft {
 }
 
 // ---------------------------------------------------------------------- one class: each weekday its own end time / OFF
-function endOptions(grid: GridInfo, current: DayInfo | null): Option[] {
-  const opts: Option[] = [{ value: '', label: `Full day (till ${grid.college_end})` }]
+function endOptions(grid: GridInfo, current: DayInfo | null, short = false): Option[] {
+  const opts: Option[] = [{ value: '', label: short ? 'Full day' : `Full day (till ${grid.college_end})` }]
   const seen = new Set<string>()
   for (const p of grid.periods) {
     if (p.end >= grid.college_end) continue
     seen.add(p.end)
-    opts.push({ value: p.end, label: `Till ${p.end} (after period ${p.number})` })
+    opts.push({ value: p.end, label: short ? `Till ${p.end}` : `Till ${p.end} (after period ${p.number})` })
   }
   if (current?.end_time && !seen.has(current.end_time)) opts.push({ value: current.end_time, label: `Till ${current.end_time}` })
-  opts.push({ value: 'off', label: 'OFF - no lectures' })
+  opts.push({ value: 'off', label: short ? 'OFF' : 'OFF - no lectures' })
   return opts
 }
 
@@ -97,7 +97,7 @@ function ClassSchedule({ cls, grid, onChange, saving }: { cls: ClassTiming; grid
               value={valueOf(d)}
               disabled={saving}
               onChange={(v) => onChange([toApi(d.day, v)])}
-              options={endOptions(grid, d)}
+              options={endOptions(grid, d, true)}
             />
           </div>
         ))}

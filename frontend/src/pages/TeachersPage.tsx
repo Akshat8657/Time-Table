@@ -43,6 +43,31 @@ export default function TeachersPage() {
   const isAdmin = user?.role === 'admin'
   const profileLink = user ? `${ROLE_PREFIX[user.role]}/my-schedule/profile` : '#'
 
+  const rowActions = (u: Account) => (
+                    u.id === user?.id ? (
+                      <Link to={profileLink} title="Edit your own details in My Profile" className="whitespace-nowrap text-[13px] font-medium text-brand-text hover:underline">
+                        My Profile
+                      </Link>
+                    ) : (
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" aria-label={`Edit ${u.full_name}`} title="Edit" icon={<Pencil className="size-4" />} onClick={() => setDialog({ account: u, role: u.role })} />
+                        <Button variant="ghost" size="sm" aria-label={`Reset the password of ${u.full_name}`} title="Reset password" icon={<KeyRound className="size-4" />} onClick={() => setConfirm({ kind: 'reset', account: u })} disabled={!u.is_active} />
+                        {u.is_active ? (
+                          <Button variant="ghost" size="sm" aria-label={`Deactivate ${u.full_name}`} title="Deactivate" icon={<Power className="size-4" />} onClick={() => setConfirm({ kind: 'deactivate', account: u })} />
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Reactivate ${u.full_name}`}
+                            title="Reactivate"
+                            icon={<Power className="size-4 text-success" />}
+                            onClick={() => void run(async () => { await api(`/users/${u.id}/reactivate`, { method: 'POST' }); reload() }, `${u.full_name} is active again.`)}
+                          />
+                        )}
+                      </div>
+                    )
+  )
+
   const users = data?.users ?? []
   const noSchool = scope.ready && !scope.schoolId
 
@@ -123,6 +148,28 @@ export default function TeachersPage() {
               rowKey={(u) => u.id}
               empty={search ? 'Nobody matches your search.' : 'No accounts yet. Use “Add teacher” to create the first one.'}
               rowClass={(u) => (u.is_active ? '' : 'opacity-60')}
+              card={(u) => (
+                <div>
+                  <div className="flex items-center gap-3">
+                    <Avatar name={u.full_name} photoUrl={u.photo_url} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-ink">
+                        {u.full_name}
+                        {u.id === user?.id && <span className="ml-2 text-xs font-normal text-muted">(you)</span>}
+                      </p>
+                      <p className="truncate text-[13px] text-muted">{u.email}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    <Badge tone={u.role === 'hod' ? 'brand' : 'neutral'}>{u.role === 'hod' ? 'HOD' : 'Teacher'}</Badge>
+                    {!u.is_active ? <Badge tone="danger">Inactive</Badge> : u.must_change_password ? <Badge tone="warning">Not signed in yet</Badge> : <Badge tone="success">Active</Badge>}
+                    {u.is_visiting && <Badge tone="info">Visiting · {dayList(u.visiting_days)} · {u.max_weekly_hours ?? '?'} h</Badge>}
+                    <Badge>{u.subjects_count} {u.subjects_count === 1 ? 'subject' : 'subjects'}</Badge>
+                  </div>
+                  {u.specialization && <p className="mt-2 text-[13px] text-muted">{u.specialization}</p>}
+                  <div className="mt-2 flex justify-end border-t border-line pt-2">{rowActions(u)}</div>
+                </div>
+              )}
               columns={[
                 {
                   key: 'person',
@@ -136,6 +183,7 @@ export default function TeachersPage() {
                           {u.id === user?.id && <span className="ml-2 text-xs font-normal text-muted">(you)</span>}
                         </p>
                         <p className="truncate text-[13px] text-muted">{u.email}</p>
+                        {u.specialization && <p className="truncate text-xs text-subtle">{u.specialization}</p>}
                       </div>
                     </div>
                   ),
@@ -155,16 +203,10 @@ export default function TeachersPage() {
                   ),
                 },
                 {
-                  key: 'spec',
-                  header: 'Specialization',
-                  hideBelow: 'lg',
-                  cell: (u) => <span className="text-muted">{u.specialization ?? '-'}</span>,
-                },
-                {
                   key: 'subjects',
                   header: 'Can teach',
                   hideBelow: 'md',
-                  className: 'tabular-nums',
+                  className: 'whitespace-nowrap tabular-nums',
                   cell: (u) => (
                     <span className="text-muted">
                       {u.subjects_count} {u.subjects_count === 1 ? 'subject' : 'subjects'}
@@ -188,29 +230,7 @@ export default function TeachersPage() {
                   key: 'actions',
                   header: <span className="sr-only">Actions</span>,
                   className: 'text-right',
-                  cell: (u) =>
-                    u.id === user?.id ? (
-                      <Link to={profileLink} className="text-[13px] font-medium text-brand-text hover:underline">
-                        Edit in My Profile
-                      </Link>
-                    ) : (
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" aria-label={`Edit ${u.full_name}`} title="Edit" icon={<Pencil className="size-4" />} onClick={() => setDialog({ account: u, role: u.role })} />
-                        <Button variant="ghost" size="sm" aria-label={`Reset the password of ${u.full_name}`} title="Reset password" icon={<KeyRound className="size-4" />} onClick={() => setConfirm({ kind: 'reset', account: u })} disabled={!u.is_active} />
-                        {u.is_active ? (
-                          <Button variant="ghost" size="sm" aria-label={`Deactivate ${u.full_name}`} title="Deactivate" icon={<Power className="size-4" />} onClick={() => setConfirm({ kind: 'deactivate', account: u })} />
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`Reactivate ${u.full_name}`}
-                            title="Reactivate"
-                            icon={<Power className="size-4 text-success" />}
-                            onClick={() => void run(async () => { await api(`/users/${u.id}/reactivate`, { method: 'POST' }); reload() }, `${u.full_name} is active again.`)}
-                          />
-                        )}
-                      </div>
-                    ),
+                  cell: (u) => rowActions(u),
                 },
               ]}
             />

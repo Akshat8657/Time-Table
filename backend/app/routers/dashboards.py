@@ -22,7 +22,7 @@ async def _upcoming(school_id: uuid.UUID | None, *, all_schools: bool = False, l
             """
             select e.title, e.kind, e.date_from, e.date_to, e.full_day, e.start_time, e.end_time, e.school_id, s.name as school_name
             from public.calendar_entries e left join public.schools s on s.id = e.school_id
-            where e.date_to >= current_date order by e.date_from, e.title limit $1
+            where e.date_to >= (now() at time zone 'Asia/Kolkata')::date order by e.date_from, e.title limit $1
             """,
             limit,
         )
@@ -31,7 +31,7 @@ async def _upcoming(school_id: uuid.UUID | None, *, all_schools: bool = False, l
             """
             select e.title, e.kind, e.date_from, e.date_to, e.full_day, e.start_time, e.end_time, e.school_id, s.name as school_name
             from public.calendar_entries e left join public.schools s on s.id = e.school_id
-            where e.date_to >= current_date and (e.school_id is null or e.school_id = $2)
+            where e.date_to >= (now() at time zone 'Asia/Kolkata')::date and (e.school_id is null or e.school_id = $2)
             order by e.date_from, e.title limit $1
             """,
             limit, school_id,
@@ -57,7 +57,9 @@ select
     where a.school_id = $1 and a.term_id = $3 and (sm.number % 2 = 1) = ($2 = 'odd')) as assigned,
   (select count(distinct f.semester_id) from public.fixed_slots f where f.school_id = $1 and f.term_id = $3 and f.kind = 'PE') as classes_with_pe,
   (select count(distinct f.semester_id) from public.fixed_slots f where f.school_id = $1 and f.term_id = $3 and f.kind = 'SOL') as classes_with_sol,
-  (select count(*) from public.term_semesters t where t.school_id = $1 and t.term_id = $3) as dates_set
+  (select count(*) from public.term_semesters t where t.school_id = $1 and t.term_id = $3) as dates_set,
+  (select count(*) from public.semesters sm join public.courses c on c.id = sm.course_id
+    where sm.school_id = $1 and c.is_active and sm.no_pe_sol and (sm.number % 2 = 1) = ($2 = 'odd')) as no_pe_sol_classes
 """
 
 
@@ -69,6 +71,7 @@ async def _setup(school_id: uuid.UUID, term) -> dict[str, Any]:
         "term_set": True,
         "teachers": r["teachers"], "classes": r["classes"], "subjects": r["subjects"], "assigned": r["assigned"],
         "classes_with_pe": r["classes_with_pe"], "classes_with_sol": r["classes_with_sol"], "dates_set": r["dates_set"],
+        "no_pe_sol_classes": r["no_pe_sol_classes"],
     }
 
 

@@ -15,6 +15,7 @@ import { SelectField } from '../components/Select'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useDebounced } from '../lib/helpers'
+import { useAction } from '../lib/useAction'
 import { ROLE_PREFIX } from '../lib/nav'
 import { useSchoolScope } from '../lib/scope'
 import { useTerm } from '../lib/term'
@@ -432,6 +433,15 @@ export default function FixedSlotsPage() {
 
   const [classId, setClassId] = useState('')
   const [dialog, setDialog] = useState<{ slot: FixedSlot | null; preset: Preset | null } | null>(null)
+  const { run } = useAction()
+  const setNoPeSol = (semesterId: string, value: boolean) =>
+    void run(
+      async () => {
+        await api(`/fixed-slots/classes/${semesterId}/no-pe-sol`, { method: 'PUT', body: { no_pe_sol: value } })
+        reload()
+      },
+      value ? 'Marked: this class has no PE / SOL.' : 'PE and SOL are expected for this class again.',
+    )
 
   useEffect(() => {
     if (!data) return
@@ -483,13 +493,22 @@ export default function FixedSlotsPage() {
           )}
 
           <Panel title="PE and SOL - compulsory for every class" icon={Pin}>
+            <p className="mb-4 text-sm text-muted">Some classes have no PE and no SOL at all. Use “This class has none” for them so they are not listed as missing.</p>
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {data.classes.map((c) => (
                 <li key={c.semester_id} className="rounded-xl border border-line bg-surface-2/50 p-3.5">
                   <button type="button" onClick={() => setClassId(c.semester_id)} className="mb-2.5 text-left text-sm font-semibold text-ink hover:text-brand-text">
                     {c.label}
                   </button>
-                  <div className="flex flex-wrap gap-2">
+                  {c.no_pe_sol ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge>No PE / SOL in this class</Badge>
+                      <button type="button" onClick={() => setNoPeSol(c.semester_id, false)} className="text-xs font-medium text-brand-text hover:underline">
+                        Undo
+                      </button>
+                    </div>
+                  ) : (
+                  <div className="flex flex-wrap items-center gap-2">
                     {(['PE', 'SOL'] as const).map((k) => {
                       const has = k === 'PE' ? c.has_pe : c.has_sol
                       return has ? (
@@ -507,7 +526,13 @@ export default function FixedSlotsPage() {
                         </button>
                       )
                     })}
+                    {!c.has_pe && !c.has_sol && (
+                      <button type="button" onClick={() => setNoPeSol(c.semester_id, true)} className="text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline">
+                        This class has none
+                      </button>
+                    )}
                   </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -553,6 +578,25 @@ export default function FixedSlotsPage() {
               rows={data.slots}
               rowKey={(s) => s.id}
               empty="No slot is locked yet. Start with PE and SOL for every class."
+              card={(s) => (
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink">{s.class_label}</p>
+                      <p className="text-[13px] text-muted">
+                        {s.label} · {s.day_name}, {s.length === 1 ? `period ${s.start_period}` : `periods ${s.start_period}-${s.start_period + s.length - 1}`}
+                        {s.time ? ` · ${s.time}` : ''}
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="sm" aria-label={`Edit ${s.label}`} icon={<Pencil className="size-4" />} onClick={() => setDialog({ slot: s, preset: null })} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge tone={s.kind === 'PE' ? 'success' : s.kind === 'SOL' ? 'info' : 'brand'}>{KIND_NAME[s.kind]}</Badge>
+                    {s.problems.length > 0 ? <Badge tone="danger">Not possible now</Badge> : s.notes.length > 0 ? <Badge tone="info">Around lunch</Badge> : <Badge tone="success">OK</Badge>}
+                    {s.teacher_name && <Badge>{s.teacher_name}{s.co_teacher_name ? ` + ${s.co_teacher_name}` : ''}</Badge>}
+                  </div>
+                </div>
+              )}
               columns={[
                 { key: 'class', header: 'Class', cell: (s) => <span className="whitespace-nowrap font-medium text-ink">{s.class_label}</span> },
                 {

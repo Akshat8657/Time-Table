@@ -100,6 +100,8 @@ async def evaluate(
     )
     rule = DayRule(rule_row["is_off"], rule_row["end_time"]) if rule_row else None
     problems = timing_svc.slot_problems(grid, college["days_per_week"], rule, day, start_period, length)
+    if kind in ("PE", "SOL") and sem["no_pe_sol"]:
+        problems.append(f"This class is marked 'no PE / SOL'. Remove that mark first if {kind} should be taught.")
     notes = timing_svc.slot_notes(grid, start_period, length) if not problems else []
     if subject_problem:
         problems.append(subject_problem)
@@ -163,6 +165,11 @@ async def _nothing() -> list:
     return []
 
 
+async def _have(value):
+    """Lets a value we already hold sit next to database calls inside asyncio.gather()."""
+    return value
+
+
 def slot_out(r: asyncpg.Record, grid, problems: list[str]) -> dict[str, Any]:
     return {
         "id": str(r["id"]),
@@ -187,24 +194,39 @@ def slot_out(r: asyncpg.Record, grid, problems: list[str]) -> dict[str, Any]:
     }
 
 
-async def problems_for_term(school_id: uuid.UUID | None) -> list[dict[str, Any]]:
-    """Every locked slot of the active term with the reasons it is not possible today (also used by the timing screens)."""
-    term = await term_svc.active_term()
+async def problems_for_term(
+    school_id: uuid.UUID | None,
+    *,
+    term: asyncpg.Record | None = None,
+    college: asyncpg.Record | None = None,
+    rule_rows: list[asyncpg.Record] | None = None,
+    lunch: tuple[Any, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Every locked slot of the active term with the reasons it is not possible today (also used by the timing screens).
+    A caller that already loaded the term / college timing / day rules / lunch can pass them in (saves database trips)."""
+    term = term or await term_svc.active_term()
     if term is None:
         return []
     sql = SLOT_SQL + " where f.term_id = $1" + (" and f.school_id = $2" if school_id else "")
     args: list[Any] = [term["id"]] + ([school_id] if school_id else [])
     rows, college, rule_rows = await asyncio.gather(
         db.fetch(sql, *args),
-        timing_svc.college_row(),
-        db.fetch("select semester_id, day, is_off, end_time from public.semester_days" + (" where school_id = $1" if school_id else ""),
-                 *([school_id] if school_id else [])),
+        _have(college) if college is not None else timing_svc.college_row(),
+        _have(rule_rows) if rule_rows is not None else db.fetch(
+            "select semester_id, day, is_off, end_time from public.semester_days" + (" where school_id = $1" if school_id else ""),
+            *([school_id] if school_id else []),
+        ),
     )
     rules = timing_svc.rules_from_rows(rule_rows)
-    grids: dict[Any, Any] = {}
-    for sid in {r["school_id"] for r in rows}:
-        ls, le = await timing_svc.school_lunch(sid)
-        grids[sid] = timing_svc.make_grid(college, ls, le)
+    school_ids = {r["school_id"] for r in rows}
+    lunches = {}
+    if lunch is not None and school_id is not None:
+        lunches[school_id] = lunch
+    missing = [sid for sid in school_ids if sid not in lunches]
+    if missing:
+        for sid, found in zip(missing, await asyncio.gather(*[timing_svc.school_lunch(x) for x in missing])):
+            lunches[sid] = found
+    grids = {sid: timing_svc.make_grid(college, *lunches[sid]) for sid in school_ids}
     out = []
     for r in rows:
         grid = grids[r["school_id"]]
@@ -220,7 +242,12 @@ async def problems_for_term(school_id: uuid.UUID | None) -> list[dict[str, Any]]
 @router.get("")
 async def list_slots(school_id: str | None = None, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
     sid = await resolve_school(user, school_id)
-    term, college, lunch = await asyncio.gather(term_svc.active_term(), timing_svc.college_row(), timing_svc.school_lunch(sid))
+    term, college, lunch, rule_rows = await asyncio.gather(
+        term_svc.active_term(),
+        timing_svc.college_row(),
+        timing_svc.school_lunch(sid),
+        db.fetch("select semester_id, day, is_off, end_time from public.semester_days where school_id = $1", sid),
+    )
     grid = timing_svc.make_grid(college, *lunch)
     if term is None:
         return {"active_term": None, "grid": grid.as_dict(), "days_per_week": college["days_per_week"], "classes": [], "slots": []}
@@ -228,16 +255,15 @@ async def list_slots(school_id: str | None = None, user: CurrentUser = Depends(r
     sems, found = await asyncio.gather(
         db.fetch(
             """
-            select sm.id, sm.number, c.name as course_name
+            select sm.id, sm.number, sm.no_pe_sol, c.name as course_name
             from public.semesters sm join public.courses c on c.id = sm.course_id
             where sm.school_id = $1 and c.is_active and (sm.number % 2 = 1) = ($2 = 'odd')
             order by c.name, sm.number
             """,
             sid, term["kind"],
         ),
-        problems_for_term(sid),
+        problems_for_term(sid, term=term, college=college, rule_rows=rule_rows, lunch=lunch),
     )
-    rule_rows = await db.fetch("select semester_id, day, is_off, end_time from public.semester_days where school_id = $1", sid)
     rules = timing_svc.rules_from_rows(rule_rows)
     slots = [slot_out(p["row"], grid, p["problems"]) for p in found]
     slots.sort(key=lambda s: (s["class_label"], s["day"], s["start_period"]))
@@ -251,6 +277,7 @@ async def list_slots(school_id: str | None = None, user: CurrentUser = Depends(r
                 "days": timing_svc.class_days(grid, college["days_per_week"], timing_svc.rules_of(rules, sm["id"])),
                 "has_pe": any(s["kind"] == "PE" for s in mine),
                 "has_sol": any(s["kind"] == "SOL" for s in mine),
+                "no_pe_sol": sm["no_pe_sol"],
             }
         )
     return {
@@ -261,6 +288,31 @@ async def list_slots(school_id: str | None = None, user: CurrentUser = Depends(r
         "classes": classes,
         "slots": slots,
     }
+
+
+class NoPeSolIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    no_pe_sol: bool
+
+
+@router.put("/classes/{semester_id}/no-pe-sol")
+async def mark_class_without_pe_sol(semester_id: str, body: NoPeSolIn, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
+    """Some classes have no PE and no SOL at all (e.g. B.Sc. Sem 5 and 7). Marking that keeps the checklist quiet."""
+    sem, term, course = await _context(user, semester_id)
+    label = term_svc.semester_label(course, sem["number"])
+    if body.no_pe_sol:
+        have = await db.fetchval(
+            "select count(*) from public.fixed_slots where semester_id = $1 and term_id = $2 and kind in ('PE', 'SOL')", sem["id"], term["id"]
+        )
+        if have:
+            raise ApiError(409, "IN_USE", f"{label} still has {have} PE / SOL slot(s). Remove them first, then mark the class as 'no PE / SOL'.")
+    async with db.transaction() as conn:
+        await conn.execute("update public.semesters set no_pe_sol = $2 where id = $1", sem["id"], body.no_pe_sol)
+        await audit.record(
+            conn, user, "update", "class_pe_sol", sem["id"],
+            f"{label}: " + ("has no PE / SOL" if body.no_pe_sol else "PE / SOL are expected again"), school_id=sem["school_id"],
+        )
+    return {"semester_id": str(sem["id"]), "no_pe_sol": body.no_pe_sol}
 
 
 # ---------------------------------------------------------------------- check / create / edit / delete

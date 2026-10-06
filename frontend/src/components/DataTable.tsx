@@ -21,6 +21,7 @@ export function DataTable<T>({
   caption,
   dense = false,
   rowClass,
+  card,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -29,9 +30,25 @@ export function DataTable<T>({
   caption: string
   dense?: boolean
   rowClass?: (row: T) => string
+  /** how a row looks on a phone: the table is replaced by a list of cards (no sideways scrolling) */
+  card?: (row: T) => ReactNode
 }) {
   return (
-    <div className="relative overflow-x-auto rounded-xl border border-line">
+    <>
+      {card && (
+        <ul className="space-y-2.5 sm:hidden">
+          {rows.length === 0 ? (
+            <li className="rounded-xl border border-line px-4 py-8 text-center text-sm text-muted">{empty ?? 'Nothing to show.'}</li>
+          ) : (
+            rows.map((row) => (
+              <li key={rowKey(row)} className={`rounded-xl border border-line bg-surface p-3.5 ${rowClass?.(row) ?? ''}`}>
+                {card(row)}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    <div className={`relative overflow-x-auto rounded-xl border border-line ${card ? 'hidden sm:block' : ''}`}>
       <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -64,5 +81,6 @@ export function DataTable<T>({
         </tbody>
       </table>
     </div>
+    </>
   )
 }

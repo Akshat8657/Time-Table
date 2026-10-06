@@ -26,8 +26,8 @@ class _Connection(asyncpg.Connection):
         return None
 
 
-POOL_MIN = 4              # kept warm: opening a new connection to Supabase takes about a second
-POOL_MAX = 8
+POOL_MIN = 3              # kept warm: opening a new connection to Supabase takes about a second
+POOL_MAX = 6              # the session pooler allows only 15 connections for everything together
 ACQUIRE_TIMEOUT = 25.0    # never wait for a free connection forever
 
 # Errors that mean "the pooled connection went stale" - safe to retry READS once.
@@ -61,8 +61,8 @@ async def init_pool() -> asyncpg.Pool:
     _pool = await asyncpg.create_pool(
         host=p["host"], port=p["port"], user=p["user"], password=p["password"], database=p["database"],
         ssl="require",
-        min_size=POOL_MIN,
-        max_size=POOL_MAX,
+        min_size=min(get_settings().db_pool_min, get_settings().db_pool_max),
+        max_size=get_settings().db_pool_max,
         timeout=20,
         command_timeout=30,
         max_inactive_connection_lifetime=300,
@@ -107,7 +107,7 @@ async def keep_warm() -> None:
     async def ping() -> None:
         await fetchval("select 1")
 
-    await asyncio.gather(*[ping() for _ in range(POOL_MIN)], return_exceptions=True)
+    await asyncio.gather(*[ping() for _ in range(max(1, min(get_settings().db_pool_min, get_settings().db_pool_max)))], return_exceptions=True)
 
 
 async def _read(method: str, sql: str, *args: Any) -> Any:

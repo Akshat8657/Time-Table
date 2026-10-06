@@ -217,6 +217,30 @@ function SemesterDates({ term }: { term: Term }) {
               caption="Start and end date of every class"
               rows={data.classes}
               rowKey={(c) => c.semester_id}
+              card={(c) => (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="font-medium text-ink">{c.label}</p>
+                    {problems[c.semester_id] ? <span className="text-[13px] text-danger">{problems[c.semester_id]}</span> : c.start_date && c.end_date ? <Badge tone="success">Saved</Badge> : <Badge tone="warning">Not set</Badge>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      aria-label={`Start date of ${c.label}`}
+                      value={dates[c.semester_id]?.start ?? ''}
+                      onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], start: e.target.value } })}
+                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                    />
+                    <input
+                      type="date"
+                      aria-label={`End date of ${c.label}`}
+                      value={dates[c.semester_id]?.end ?? ''}
+                      onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], end: e.target.value } })}
+                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                    />
+                  </div>
+                </div>
+              )}
               columns={[
                 { key: 'class', header: 'Class', cell: (c) => <span className="font-medium text-ink">{c.label}</span> },
                 {

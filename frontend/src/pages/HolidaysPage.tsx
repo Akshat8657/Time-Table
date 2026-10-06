@@ -328,7 +328,7 @@ export default function HolidaysPage() {
                               {e.classes.length === 0 ? <Badge>All classes</Badge> : e.classes.map((c) => <Badge key={c.semester_id} tone="neutral">{c.label}</Badge>)}
                             </div>
                           )}
-                          {e.note && <p className="mt-1.5 text-[13px] text-muted">{e.note}</p>}
+                          {e.note && !e.is_preloaded && <p className="mt-1.5 text-[13px] text-muted">{e.note}</p>}
                         </div>
                         {e.can_edit && (
                           <div className="flex shrink-0 gap-1">

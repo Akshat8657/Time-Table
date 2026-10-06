@@ -218,7 +218,7 @@ export interface FixedSlotsPayload {
   active_term: Term | null
   grid: GridInfo
   days_per_week: number
-  classes: { semester_id: string; label: string; days: DayInfo[]; has_pe: boolean; has_sol: boolean }[]
+  classes: { semester_id: string; label: string; days: DayInfo[]; has_pe: boolean; has_sol: boolean; no_pe_sol: boolean }[]
   slots: FixedSlot[]
 }
 

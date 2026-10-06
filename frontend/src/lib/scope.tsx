@@ -17,6 +17,8 @@ interface ScopeValue {
   path: (base: string) => string
   /** the same for a request body */
   body: () => { school_id?: string }
+  /** reloads the school list (after a school was added / renamed / removed) */
+  refreshSchools: () => Promise<void>
 }
 
 const ScopeContext = createContext<ScopeValue | null>(null)
@@ -32,6 +34,19 @@ export function SchoolScopeProvider({ children }: { children: ReactNode }) {
   const [chosen, setChosen] = useState<string | null>(null)
   const [ready, setReady] = useState(!isAdmin)
 
+  const loadSchools = useCallback(async () => {
+    try {
+      const d = await api<{ schools: School[] }>('/structure/schools')
+      setSchools(d.schools)
+      // keep the chosen school if it still exists, otherwise take the first active one
+      setChosen((current) => (current && d.schools.some((s) => s.id === current) ? current : (d.schools.find((s) => s.is_active)?.id ?? d.schools[0]?.id ?? null)))
+    } catch {
+      /* the screens show their own error when a school-wide request fails */
+    } finally {
+      setReady(true)
+    }
+  }, [])
+
   useEffect(() => {
     if (!user) return
     if (!isAdmin) {
@@ -39,19 +54,8 @@ export function SchoolScopeProvider({ children }: { children: ReactNode }) {
       setReady(true)
       return
     }
-    let cancelled = false
-    api<{ schools: School[] }>('/structure/schools')
-      .then((d) => {
-        if (cancelled) return
-        setSchools(d.schools)
-        setChosen((current) => current ?? d.schools.find((s) => s.is_active)?.id ?? d.schools[0]?.id ?? null)
-      })
-      .catch(() => undefined)
-      .finally(() => !cancelled && setReady(true))
-    return () => {
-      cancelled = true
-    }
-  }, [user, isAdmin])
+    void loadSchools()
+  }, [user, isAdmin, loadSchools])
 
   const schoolId = isAdmin ? chosen : (user?.school_id ?? null)
   const school = schools.find((s) => s.id === schoolId) ?? null
@@ -63,8 +67,8 @@ export function SchoolScopeProvider({ children }: { children: ReactNode }) {
   const body = useCallback(() => (isAdmin && schoolId ? { school_id: schoolId } : {}), [isAdmin, schoolId])
 
   const value = useMemo<ScopeValue>(
-    () => ({ schools, schoolId, schoolName: school?.name ?? null, setSchoolId: setChosen, isAdmin, ready, path, body }),
-    [schools, schoolId, school, isAdmin, ready, path, body],
+    () => ({ schools, schoolId, schoolName: school?.name ?? null, setSchoolId: setChosen, isAdmin, ready, path, body, refreshSchools: loadSchools }),
+    [schools, schoolId, school, isAdmin, ready, path, body, loadSchools],
   )
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>
 }

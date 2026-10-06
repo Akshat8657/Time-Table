@@ -129,6 +129,42 @@ export default function AssignmentPage() {
                 rows={subjects}
                 rowKey={(s) => s.id}
                 empty="No subject matches."
+                card={(s) => (
+                  <div className="space-y-2.5">
+                    <div>
+                      <p className="font-medium text-ink">{s.name}</p>
+                      <p className="text-[13px] text-muted">{s.class_label} · {s.code} · {s.credits} cr</p>
+                      {s.is_elective && <Badge tone="brand" className="mt-1">Elective{s.elective_group_name ? ` · ${s.elective_group_name}` : ''}</Badge>}
+                    </div>
+                    {s.eligible_teachers.length === 0 && !s.teacher_id ? (
+                      <p className="flex items-start gap-2 text-[13px] text-warning">
+                        <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                        <span>Nobody can teach this yet. Add it to a teacher&apos;s “subjects they can teach” on the Teachers screen.</span>
+                      </p>
+                    ) : (
+                      <>
+                        <SelectField
+                          compact
+                          aria-label={`Teacher of ${s.name}`}
+                          value={s.teacher_id ?? ''}
+                          disabled={saving === s.id}
+                          placeholder="Choose a teacher"
+                          onChange={(v) => void assign(s, v, v === s.co_teacher_id ? '' : (s.co_teacher_id ?? ''))}
+                          options={s.eligible_teachers.map((t) => ({ value: t.id, label: t.name }))}
+                        />
+                        <SelectField
+                          compact
+                          aria-label={`Co-teacher of ${s.name}`}
+                          value={s.co_teacher_id ?? ''}
+                          disabled={!s.teacher_id || saving === s.id}
+                          placeholder="No co-teacher"
+                          onChange={(v) => s.teacher_id && void assign(s, s.teacher_id, v)}
+                          options={s.eligible_teachers.filter((t) => t.id !== s.teacher_id).map((t) => ({ value: t.id, label: t.name }))}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
                 columns={[
                   {
                     key: 'subject',
