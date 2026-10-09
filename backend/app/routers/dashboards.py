@@ -75,6 +75,21 @@ async def _setup(school_id: uuid.UUID, term) -> dict[str, Any]:
     }
 
 
+PUBLISH_SQL = """
+select (select count(*) from public.semesters sm join public.courses c on c.id = sm.course_id
+         where sm.school_id = $1 and c.is_active and (sm.number % 2 = 1) = ($2 = 'odd')) as classes,
+       (select count(*) from public.publications p where p.school_id = $1 and p.term_id = $3) as published,
+       (select count(*) from public.timetable_drafts d where d.school_id = $1 and d.term_id = $3 and d.is_primary) as with_primary
+"""
+
+
+async def _publish_block(school_id: uuid.UUID, term) -> dict[str, Any] | None:
+    if term is None:
+        return None
+    r = await db.fetchrow(PUBLISH_SQL, school_id, term["kind"], term["id"])
+    return {"classes": r["classes"], "published": r["published"], "with_primary": r["with_primary"]}
+
+
 @router.get("/admin/overview")
 async def admin_overview(user: CurrentUser = Depends(require_roles("admin"))) -> dict:
     schools, counts, term, upcoming = await asyncio.gather(
@@ -90,9 +105,15 @@ async def admin_overview(user: CurrentUser = Depends(require_roles("admin"))) ->
         term_svc.active_term(),
         _upcoming(None, all_schools=True),
     )
+    school_blocks = []
+    for sc in schools:
+        if not sc["is_active"] or term is None:
+            continue
+        school_blocks.append({"school_id": str(sc["id"]), "school_name": sc["name"], "publish": await _publish_block(sc["id"], term)})
     return {
         "scope": "college",
         "schools": [{"id": str(s["id"]), "name": s["name"], "is_active": s["is_active"]} for s in schools],
+        "school_blocks": school_blocks,
         "counts": {"admins": counts["admins"], "hods": counts["hods"], "teachers": counts["teachers"]},
         "active_term": term_svc.term_out(term) if term else None,
         "upcoming": upcoming,
@@ -111,11 +132,12 @@ async def hod_overview(user: CurrentUser = Depends(require_roles("hod", "admin")
             "active_term": term_svc.term_out(term) if term else None, "upcoming": upcoming, "setup": None,
         }
     school_id = uuid.UUID(user.school_id)  # type: ignore[arg-type]
-    school, teachers, setup, upcoming = await asyncio.gather(
+    school, teachers, setup, upcoming, publish_block = await asyncio.gather(
         db.fetchrow("select id, name from public.schools where id = $1", school_id),
         db.fetchval("select count(*) from public.profiles where school_id = $1 and role = 'teacher' and is_active", school_id),
         _setup(school_id, term),
         _upcoming(school_id),
+        _publish_block(school_id, term),
     )
     return {
         "scope": "school",
@@ -124,6 +146,7 @@ async def hod_overview(user: CurrentUser = Depends(require_roles("hod", "admin")
         "active_term": term_svc.term_out(term) if term else None,
         "setup": setup,
         "upcoming": upcoming,
+        "publish": publish_block,
     }
 
 

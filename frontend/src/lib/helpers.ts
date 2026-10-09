@@ -60,3 +60,29 @@ export function queryString(params: Record<string, string | number | boolean | n
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
   return parts.length ? `?${parts.join('&')}` : ''
 }
+
+/** ISO date + n days (n may be negative), e.g. addDaysIso('2026-10-12', 7) = '2026-10-19' */
+export function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const next = new Date(y, m - 1, d + n)
+  const pad = (v: number) => String(v).padStart(2, '0')
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`
+}
+
+/** the Monday of the week that contains this ISO date */
+export function mondayOf(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dow = new Date(y, m - 1, d).getDay() // 0 = Sunday
+  return addDaysIso(iso, dow === 0 ? -6 : 1 - dow)
+}
+
+/** "Mon 12 Oct" */
+export function formatShort(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+/** "12 Oct 2026, 4:30 pm" for a timestamp */
+export function formatStamp(iso: string): string {
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+}

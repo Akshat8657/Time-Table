@@ -647,7 +647,7 @@ export default function DraftEditorPage() {
       node: (
         <PaletteCard
           title={s.name} lines={[`${s.teacher_name ?? 'No teacher yet'}${s.co_teacher_name ? ` + ${s.co_teacher_name}` : ''}`]}
-          placed={s.placed} required={s.required} status={s.status} badges={s.is_lab ? ['Lab · 1 block of 2 periods'] : [`${s.credits} credits = ${s.required} lectures`]} hue={hues.get(s.id) ?? 212}
+          placed={s.placed} required={s.required} status={s.status} badges={s.is_lab ? ['Lab · 1 block of 2 periods'] : [s.credits === s.required ? `${s.required} lectures a week` : `${s.required} lectures a week (${s.credits} credits)`]} hue={hues.get(s.id) ?? 212}
           selected={picked?.kind === 'subject' && picked.id === s.id}
           onPick={() => (picked?.kind === 'subject' && picked.id === s.id ? clearPick() : pick({ kind: 'subject', id: s.id, name: s.name, length: s.is_lab ? 2 : 1 }))}
           onDragStart={dragSubject({ kind: 'subject', id: s.id, name: s.name, length: s.is_lab ? 2 : 1 })} onDragEnd={onDragEnd}
@@ -838,7 +838,7 @@ export default function DraftEditorPage() {
               <div className={`h-full rounded-full transition-all ${comp.percent === 100 ? 'bg-[var(--success)]' : 'bg-brand'}`} style={{ width: `${comp.percent}%` }} />
             </div>
             <p className="mt-2 text-xs text-muted">
-              {comp.placed} of {comp.required} lectures placed (credits = lectures a week; a lab is one 2-period block; PE / SOL come from their locked slots).
+              {comp.placed} of {comp.required} lectures placed (the weekly lectures of each subject - its credits unless the HOD set another number; a lab is one 2-period block; PE / SOL come from their locked slots).
               {comp.missing > 0 ? ` ${comp.missing} still to place.` : ' Everything is placed.'}
             </p>
             <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted">

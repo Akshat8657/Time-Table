@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/subjects", tags=["subjects"])
 ROLES = ("admin", "hod")
 
 LIST_SQL = """
-select s.id, s.school_id, s.semester_id, s.name, s.code, s.credits, s.semester_hours, s.is_lab, s.is_elective,
+select s.id, s.school_id, s.semester_id, s.name, s.code, s.credits, s.weekly_lectures, s.semester_hours, s.is_lab, s.is_elective,
        s.special_kind, s.elective_group_id, g.name as group_name,
        sm.number, c.id as course_id, c.name as course_name,
        a.id as assignment_id, a.teacher_id, p.full_name as teacher_name,
@@ -46,6 +46,8 @@ def subject_out(r: asyncpg.Record) -> dict[str, Any]:
         "name": r["name"],
         "code": r["code"],
         "credits": r["credits"],
+        "weekly_lectures": r["weekly_lectures"],
+        "weekly_effective": r["weekly_lectures"] if r["weekly_lectures"] is not None else r["credits"],
         "semester_hours": r["semester_hours"],
         "is_lab": r["is_lab"],
         "is_elective": r["is_elective"],
@@ -62,12 +64,13 @@ def subject_out(r: asyncpg.Record) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------- elective-group warnings
 async def group_warnings(conn_or_none: Any, group_id: uuid.UUID | None) -> list[str]:
-    """Plan Section 9: all electives of one group should have the same credits."""
+    """Plan Section 9: all electives of one group should have the same credits - and the same lectures a week
+    (they run in the same slots)."""
     if group_id is None:
         return []
     fetch = conn_or_none.fetch if conn_or_none is not None else db.fetch
     rows = await fetch(
-        "select g.name as group_name, s.name, s.credits from public.subjects s "
+        "select g.name as group_name, s.name, s.credits, coalesce(s.weekly_lectures, s.credits) as weekly from public.subjects s "
         "join public.elective_groups g on g.id = s.elective_group_id where s.elective_group_id = $1 order by s.name",
         group_id,
     )
@@ -80,6 +83,12 @@ async def group_warnings(conn_or_none: Any, group_id: uuid.UUID | None) -> list[
             f"Elective Group '{rows[0]['group_name']}' has different credits ({detail}). "
             "All electives in one group run in the same time slots, so they should have the same credits."
         )
+    if len({r["weekly"] for r in rows}) > 1:
+        detail = ", ".join(f"{r['name']}: {r['weekly']}" for r in rows)
+        warnings.append(
+            f"Elective Group '{rows[0]['group_name']}' has different weekly lectures ({detail}). "
+            "The group is placed as ONE parallel slot, so the largest value is used for all options."
+        )
     return warnings
 
 
@@ -89,7 +98,7 @@ def subject_warnings(is_lab: bool, credits: int, special_kind: str | None) -> li
     out = []
     if special_kind:
         out.append(
-            f"{special_kind} lectures come only from the fixed double blocks (Fixed Slots screen) - credits do not decide them."
+            f"{special_kind} lectures come only from the fixed double blocks (Fixed Slots screen) - credits and weekly lectures do not decide them."
         )
     return out
 
@@ -128,6 +137,7 @@ class SubjectBase(BaseModel):
     name: text(1, 150)  # type: ignore[valid-type]
     code: text(1, 30)  # type: ignore[valid-type]
     credits: int = Field(ge=1, le=30)
+    weekly_lectures: int | None = Field(default=None, ge=1, le=30)  # empty = same as credits
     semester_hours: int = Field(ge=1, le=400)
     is_lab: bool = False
     is_elective: bool = False
@@ -152,6 +162,7 @@ class SubjectPatch(BaseModel):
     name: text(1, 150) | None = None  # type: ignore[valid-type]
     code: text(1, 30) | None = None  # type: ignore[valid-type]
     credits: int | None = Field(default=None, ge=1, le=30)
+    weekly_lectures: int | None = Field(default=None, ge=1, le=30)  # send null to go back to 'same as credits'
     semester_hours: int | None = Field(default=None, ge=1, le=400)
     is_lab: bool | None = None
     is_elective: bool | None = None
@@ -197,16 +208,16 @@ async def create_subject(body: SubjectIn, user: CurrentUser = Depends(require_ro
         row = await conn.fetchrow(
             """
             insert into public.subjects (school_id, semester_id, name, code, credits, semester_hours, is_lab, is_elective,
-                                         special_kind, elective_group_id, created_by)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id
+                                         special_kind, elective_group_id, created_by, weekly_lectures)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id
             """,
             sem["school_id"], sem["id"], body.name, body.code, body.credits, body.semester_hours,
-            body.is_lab, body.is_elective, body.special_kind, gid, uuid.UUID(user.id),
+            body.is_lab, body.is_elective, body.special_kind, gid, uuid.UUID(user.id), body.weekly_lectures,
         )
         await audit.record(
             conn, user, "create", "subject", row["id"],
             f"Created subject {body.name} ({body.code}) for {term_svc.semester_label(course['name'], sem['number'])}",
-            school_id=sem["school_id"], details={"credits": body.credits, "hours": body.semester_hours},
+            school_id=sem["school_id"], details={"credits": body.credits, "weekly_lectures": body.weekly_lectures, "hours": body.semester_hours},
         )
         warnings = await group_warnings(conn, gid) + subject_warnings(body.is_lab, body.credits, body.special_kind)
     return {"id": str(row["id"]), "warnings": warnings}
@@ -220,6 +231,7 @@ async def update_subject(subject_id: str, body: SubjectPatch, user: CurrentUser 
     name = body.name if "name" in fields and body.name else old["name"]
     code = body.code if "code" in fields and body.code else old["code"]
     credits = body.credits if body.credits is not None else old["credits"]
+    weekly = body.weekly_lectures if "weekly_lectures" in fields else old["weekly_lectures"]
     hours = body.semester_hours if body.semester_hours is not None else old["semester_hours"]
     is_lab = body.is_lab if body.is_lab is not None else old["is_lab"]
     is_elective = body.is_elective if body.is_elective is not None else old["is_elective"]
@@ -236,15 +248,15 @@ async def update_subject(subject_id: str, body: SubjectPatch, user: CurrentUser 
             """
             update public.subjects
                set name = $2, code = $3, credits = $4, semester_hours = $5, is_lab = $6, is_elective = $7,
-                   special_kind = $8, elective_group_id = $9
+                   special_kind = $8, elective_group_id = $9, weekly_lectures = $10
              where id = $1
             """,
-            old["id"], name, code, credits, hours, is_lab, is_elective, special, gid,
+            old["id"], name, code, credits, hours, is_lab, is_elective, special, gid, weekly,
         )
         await audit.record(
             conn, user, "update", "subject", old["id"], f"Updated subject {name} ({code})",
             school_id=old["school_id"],
-            details={"credits": credits, "hours": hours, "lab": is_lab, "elective": is_elective, "special": special},
+            details={"credits": credits, "weekly_lectures": weekly, "hours": hours, "lab": is_lab, "elective": is_elective, "special": special},
         )
         warnings = await group_warnings(conn, gid) + subject_warnings(is_lab, credits, special)
     return {"id": str(old["id"]), "warnings": warnings}
@@ -258,15 +270,17 @@ async def delete_subject(subject_id: str, user: CurrentUser = Depends(require_ro
         """
         select (select count(*) from public.assignments where subject_id = $1) as assigned,
                (select count(*) from public.fixed_slots where subject_id = $1) as locked,
-               (select count(*) from public.draft_entries where subject_id = $1) as drafted
+               (select count(*) from public.draft_entries where subject_id = $1) as drafted,
+               (select count(*) from public.published_entries where subject_id = $1)
+                 + (select count(*) from public.extra_lectures where subject_id = $1) as published
         """,
         old["id"],
     )
-    if used["assigned"] or used["locked"] or used["drafted"]:
+    if used["assigned"] or used["locked"] or used["drafted"] or used["published"]:
         raise ApiError(
             409, "IN_USE",
-            f"'{old['name']}' is still used in {used['assigned']} assignment(s), {used['locked']} locked slot(s) and "
-            f"{used['drafted']} timetable draft placement(s). Remove those first.",
+            f"'{old['name']}' is still used in {used['assigned']} assignment(s), {used['locked']} locked slot(s), "
+            f"{used['drafted']} timetable draft placement(s) and {used['published']} published / extra lecture(s). Remove those first.",
         )
     async with db.transaction() as conn:
         await conn.execute("delete from public.subjects where id = $1", old["id"])

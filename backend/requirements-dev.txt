@@ -2,3 +2,4 @@
 -r requirements.txt
 pytest>=9.1,<10
 pytest-asyncio>=1.4,<2
+pypdf>=5,<7

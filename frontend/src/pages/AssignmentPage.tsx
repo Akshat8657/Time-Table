@@ -228,7 +228,7 @@ export default function AssignmentPage() {
         </Panel>
 
         <Panel title="Teacher workload" icon={Gauge}>
-          <p className="mb-3 text-[13px] text-muted">Lectures per week = credits of the subjects they teach + their locked slots (PE / SOL credits are not counted).</p>
+          <p className="mb-3 text-[13px] text-muted">Lectures per week = the weekly lectures of the subjects they teach (credits unless changed) + their locked slots (PE / SOL are not counted).</p>
           {loading && !data ? (
             <Skeleton className="h-40" />
           ) : teachers.length === 0 ? (

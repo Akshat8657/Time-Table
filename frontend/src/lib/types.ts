@@ -121,6 +121,10 @@ export interface SubjectRow {
   name: string
   code: string
   credits: number
+  /** the HOD's override of the lectures needed per week (null = same as credits) */
+  weekly_lectures: number | null
+  /** what the timetable really needs: the override, or the credits */
+  weekly_effective: number
   semester_hours: number
   is_lab: boolean
   is_elective: boolean
@@ -182,6 +186,7 @@ export interface CollegeTiming {
   lecture_minutes: number
   break_minutes: number
   days_per_week: number
+  college_name?: string | null
 }
 
 export interface TimingPayload {
@@ -362,6 +367,8 @@ export interface PaletteSubject {
   name: string
   code: string
   credits: number
+  /** lectures needed per week (the credits unless the HOD set a weekly-lectures value) */
+  weekly_lectures: number
   is_lab: boolean
   special_kind: 'PE' | 'SOL' | null
   group_id: string | null
@@ -523,4 +530,269 @@ export interface CopyableTerm {
   primaries: number
   drafts: number
   same_kind: boolean
+}
+
+// ====================================================================================================== Phase 4
+export interface PublishClass {
+  semester_id: string
+  class_label: string
+  primary: { id: string; name: string } | null
+  published: { version: number; published_at: string; published_by: string | null; source_draft_name: string | null; rows: number; lectures: number } | null
+  state: 'no_draft' | 'not_published' | 'in_sync' | 'changed' | 'draft_removed'
+  changes: { added_count: number; removed_count: number; added: string[]; removed: string[] } | null
+  blockers: string[]
+  blocker_count: number
+  completeness: { required: number; placed: number; percent: number; missing: number } | null
+  can_publish: boolean
+}
+
+export interface PublishStatus {
+  active_term: Term | null
+  classes: PublishClass[]
+  summary: Partial<Record<'no_draft' | 'not_published' | 'in_sync' | 'changed' | 'draft_removed' | 'unpublished' | 'can_publish', number>>
+}
+
+export interface PublishResult {
+  event: { id: string; number: number; scope: string }
+  published: { semester_id: string; class_label: string; version: number; lectures: number; added: number; removed: number; first: boolean }[]
+  skipped: { semester_id: string; class_label: string; reasons: string[]; up_to_date: boolean }[]
+  notified: number
+  teachers_changed: number
+  message: string
+}
+
+export interface PublishEvent {
+  id: string
+  number: number
+  scope: 'all' | 'class'
+  published_at: string
+  published_by: string | null
+  notified: number
+  classes: { class_label: string; version: number; lectures: number; added: number; removed: number; first: boolean }[]
+}
+
+export interface ViewItem {
+  subject_id: string | null
+  title: string
+  code: string | null
+  is_lab: boolean
+  teacher_id: string | null
+  teacher_name: string | null
+  co_teacher_id: string | null
+  co_teacher_name: string | null
+}
+
+export interface ViewCell {
+  key: string
+  kind: 'lecture' | 'fixed' | 'extra'
+  fixed_kind: string | null
+  day: number
+  day_name: string
+  start_period: number
+  length: number
+  time: string | null
+  items: ViewItem[]
+  classes: { id: string; label: string }[]
+  combined: boolean
+  combined_with: string | null
+  parallel: boolean
+  parallel_with?: string[]
+  is_lab: boolean
+  date: string | null
+  status: 'holiday' | 'event' | 'not_running' | null
+  status_note: string | null
+  extra: { id: string; date: string; reason: string | null } | null
+}
+
+export interface DayBanner {
+  id: string
+  kind: 'holiday' | 'event'
+  title: string
+  full_day: boolean
+  window: string
+}
+
+export interface DayHeader {
+  day: number
+  name: string
+  short: string
+  date: string
+  is_today: boolean
+  banners: DayBanner[]
+}
+
+export interface ViewStats {
+  lectures: number
+  hours: number
+  cancelled: number
+  extra: number
+}
+
+export interface PublishedInfo {
+  term: Term | null
+  published: boolean
+  message?: string
+  publications?: { semester_id: string; class_label: string; version: number; published_at: string; published_by: string | null; source_draft_name: string | null }[]
+  last_published_at?: string | null
+}
+
+export interface WeekView extends PublishedInfo {
+  monday: string
+  days: DayHeader[]
+  grid: GridInfo
+  cells: ViewCell[]
+  stats: ViewStats
+  owner?: { id: string; name: string; school?: string }
+  off_days?: Record<string, Record<string, { is_off: boolean; end_time: string | null }>>
+}
+
+export interface TodayView extends PublishedInfo {
+  date: string
+  weekday: number
+  weekday_name: string
+  is_today: boolean
+  is_working_day: boolean
+  banners: DayBanner[]
+  grid: GridInfo
+  cells: ViewCell[]
+  stats: ViewStats
+  current_key: string | null
+  next_key: string | null
+  week_lectures: number
+}
+
+export interface MasterView extends WeekView {
+  scope: 'week' | 'today'
+  date: string | null
+  day: number | null
+  classes: { id: string; label: string; published: boolean }[]
+  filters: { semester_id: string | null; teacher_id: string | null; day: number | null }
+  school: { id: string; name: string }
+}
+
+export interface ViewOptions {
+  term: Term | null
+  published: boolean
+  classes: { id: string; label: string; published: boolean; version: number | null; published_at: string | null }[]
+  teachers: { id: string; name: string; role: string; is_active: boolean; is_visiting: boolean; lectures: number }[]
+}
+
+export interface NotificationItem {
+  id: string
+  kind: string
+  title: string
+  body: string | null
+  link: string | null
+  data: Record<string, unknown>
+  is_read: boolean
+  read_at: string | null
+  created_at: string
+}
+
+export interface NotificationsPayload {
+  notifications: NotificationItem[]
+  unread: number
+  has_more: boolean
+}
+
+export interface PushConfig {
+  enabled: boolean
+  public_key: string | null
+  devices: number
+}
+
+export interface HoursSubject {
+  subject_id: string
+  semester_id: string
+  class_label: string
+  name: string
+  code: string
+  is_lab: boolean
+  special_kind: 'PE' | 'SOL' | null
+  group_id: string | null
+  teachers: { id: string; name: string }[]
+  required: number
+  weekly: number
+  scheduled: number
+  lost: number
+  extra: number
+  deliverable: number
+  delivered: number
+  remaining: number
+  shortfall: number
+  surplus: number
+  status: 'ok' | 'short' | 'unpublished' | 'no_dates'
+  note: string | null
+  extra_lectures_needed: number
+  percent_delivered: number
+  percent_planned: number
+  dates?: { start: string; end: string } | null
+}
+
+export interface HoursSummary {
+  subjects: number
+  short_subjects: number
+  short_hours: number
+  unpublished_classes: number
+  worst: { subject_id: string; name: string; class_label: string; shortfall: number }[]
+}
+
+export interface HoursClass {
+  semester_id: string
+  class_label: string
+  published: boolean
+  dates: { start: string; end: string } | null
+  short_hours: number
+  short_subjects: number
+  subjects: HoursSubject[]
+}
+
+export interface HoursPayload {
+  term: Term | null
+  today: string
+  classes: HoursClass[]
+  summary: HoursSummary
+}
+
+export interface MyHoursPayload {
+  term: Term | null
+  today: string
+  subjects: HoursSubject[]
+  summary: HoursSummary
+}
+
+export interface ExtraSlot {
+  date: string
+  weekday: number
+  weekday_name: string
+  start_period: number
+  length: number
+  time: string | null
+  score: number
+  reasons: string[]
+  subjects: { id: string; name: string }[]
+  class_label: string
+}
+
+export interface SuggestPayload {
+  subject: HoursSubject
+  needed: number
+  suggestions: ExtraSlot[]
+  unfilled: number
+  message: string
+  group: { id: string; name: string }[] | null
+}
+
+export interface ExtraLecture {
+  id: string
+  semester_id: string
+  class_label: string
+  subjects: string[]
+  date: string
+  start_period: number
+  length: number
+  time: string | null
+  reason: string | null
+  teacher_name: string | null
+  can_cancel: boolean
 }

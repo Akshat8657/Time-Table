@@ -11,6 +11,7 @@ import { TextField } from '../components/Field'
 import { Modal } from '../components/Modal'
 import { EmptyState, PageHeader, Panel, Skeleton } from '../components/Panel'
 import { SchoolBar } from '../components/SchoolBar'
+import type { PublishStatus } from '../lib/types'
 import { SelectField } from '../components/Select'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
@@ -173,6 +174,9 @@ export default function DraftsPage() {
   const { active, ready: termReady } = useTerm()
   const enabled = scope.ready && !!scope.schoolId && !!active
   const { data, error, loading, reload } = useApi<DraftsPayload>(enabled ? scope.path('/drafts') : null)
+  const publish = useApi<PublishStatus>(enabled ? scope.path('/publish/status') : null)
+  const stateOf = new Map((publish.data?.classes ?? []).map((c) => [c.semester_id, c.state]))
+  const unpublished = publish.data?.summary.unpublished ?? 0
   const prefix = user ? ROLE_PREFIX[user.role] : ''
 
   const [creating, setCreating] = useState<{ row: DraftClassRow; copyFrom: DraftSummary | null } | null>(null)
@@ -212,7 +216,7 @@ export default function DraftsPage() {
     <>
       <PageHeader
         title="Timetable Drafts"
-        subtitle="Every class can have several named drafts. Open one to place subjects on the weekly grid - drag and drop or click, with live clash checks. Drafts are private: teachers see nothing until you publish (Phase 4). Automatic generation comes in Phase 3."
+        subtitle="Every class can have several named drafts. Open one to place subjects on the weekly grid - drag and drop or click, with live clash checks. Drafts are private: teachers see nothing until you publish the primary drafts (Publish screen)."
         badge="Phase 2"
       />
       <SchoolBar>
@@ -243,6 +247,11 @@ export default function DraftsPage() {
               Open the <Link to={`${prefix}/conflicts`} className="font-semibold underline">Conflict Report</Link> to see exactly where.
             </Alert>
           )}
+          {unpublished > 0 && (
+            <Alert tone="warning" title={`${unpublished} ${unpublished === 1 ? 'class has' : 'classes have'} unpublished changes`}>
+              The primary draft differs from what teachers see. <Link to={`${prefix}/publish`} className="font-semibold underline">Open Publish</Link> to make it live.
+            </Alert>
+          )}
           <GenerationPanel onChanged={reload} />
           {data.classes.map((c) => (
             <Panel
@@ -250,9 +259,14 @@ export default function DraftsPage() {
               title={c.label}
               icon={LayoutGrid}
               action={
-                <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setCreating({ row: c, copyFrom: null })} disabled={c.drafts.length >= (data.max_drafts_per_class ?? 12)}>
-                  New draft
-                </Button>
+                <div className="flex items-center gap-2">
+                  {stateOf.get(c.semester_id) === 'changed' && <Badge tone="warning" className="font-semibold">Unpublished changes</Badge>}
+                  {stateOf.get(c.semester_id) === 'in_sync' && <Badge tone="success">Published</Badge>}
+                  {stateOf.get(c.semester_id) === 'not_published' && <Badge tone="info">Not published</Badge>}
+                  <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setCreating({ row: c, copyFrom: null })} disabled={c.drafts.length >= (data.max_drafts_per_class ?? 12)}>
+                    New draft
+                  </Button>
+                </div>
               }
             >
               <p className="mb-3 text-[13px] text-muted">

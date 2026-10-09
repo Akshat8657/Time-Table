@@ -25,11 +25,11 @@ from .subjects import LIST_SQL, subject_out
 router = APIRouter(prefix="/api/assignments", tags=["assignment"])
 ROLES = ("admin", "hod")
 
-# weekly lectures of a person: credits of the subjects they teach (primary OR co-teacher; PE / SOL credits do not count)
+# weekly lectures of a person: weekly lectures (= credits unless overridden) of the subjects they teach (primary OR co-teacher; PE / SOL do not count)
 # + the length of their locked slots that are not already part of one of those subjects
 LOAD_SQL = """
 select p.id,
-       coalesce((select sum(s.credits) from public.assignments a join public.subjects s on s.id = a.subject_id
+       coalesce((select sum(coalesce(s.weekly_lectures, s.credits)) from public.assignments a join public.subjects s on s.id = a.subject_id
                  where (a.teacher_id = p.id or a.co_teacher_id = p.id) and a.term_id = $2 and s.special_kind is null), 0) as credits_load,
        coalesce((select sum(x.length) from (
                    select distinct on (coalesce(f.combined_group_id, f.id)) f.length

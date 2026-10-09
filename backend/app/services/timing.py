@@ -35,6 +35,7 @@ def college_out(row: asyncpg.Record) -> dict[str, Any]:
         "lecture_minutes": row["lecture_minutes"],
         "break_minutes": row["break_minutes"],
         "days_per_week": row["days_per_week"],
+        "college_name": row["college_name"],
     }
 
 

@@ -77,7 +77,8 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
         db.fetch("select semester_id, day, is_off, end_time from public.semester_days where school_id = $1", school_id),
         db.fetch(
             """
-            select s.id, s.semester_id, s.name, s.code, s.credits, s.is_lab, s.special_kind, s.elective_group_id, g.name as group_name
+            select s.id, s.semester_id, s.name, s.code, s.credits, s.weekly_lectures, s.is_lab, s.special_kind, s.elective_group_id,
+                   g.name as group_name
             from public.subjects s
             join public.semesters sm on sm.id = s.semester_id join public.courses c on c.id = sm.course_id
             left join public.elective_groups g on g.id = s.elective_group_id
@@ -92,7 +93,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
             school_id,
         ),
         db.fetch(
-            "select id, combined_group_id, semester_id, day, start_period, length, kind, label, teacher_id, co_teacher_id "
+            "select id, combined_group_id, semester_id, day, start_period, length, kind, label, teacher_id, co_teacher_id, subject_id "
             "from public.fixed_slots where school_id = $1 and term_id = $2",
             school_id, term["id"],
         ),
@@ -112,7 +113,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
         labels={s["id"]: term_svc.semester_label(s["course_name"], s["number"]) for s in sems},
         rules={(r["semester_id"], r["day"]): DayRule(r["is_off"], r["end_time"]) for r in rule_rows},
         subjects={
-            s["id"]: sch.Subj(s["id"], s["semester_id"], s["name"], s["code"], s["credits"], s["is_lab"], s["special_kind"], s["elective_group_id"], s["group_name"])
+            s["id"]: sch.Subj(s["id"], s["semester_id"], s["name"], s["code"], s["credits"], s["is_lab"], s["special_kind"], s["elective_group_id"], s["group_name"], s["weekly_lectures"])
             for s in subs
         },
         assign={a["subject_id"]: (a["teacher_id"], a["co_teacher_id"]) for a in assigns},
@@ -121,7 +122,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
             for p in people
         },
         fixed=[
-            sch.Fixed(f["id"], f["combined_group_id"] or f["id"], f["semester_id"], f["day"], f["start_period"], f["length"], f["kind"], f["label"], f["teacher_id"], f["co_teacher_id"])
+            sch.Fixed(f["id"], f["combined_group_id"] or f["id"], f["semester_id"], f["day"], f["start_period"], f["length"], f["kind"], f["label"], f["teacher_id"], f["co_teacher_id"], f["subject_id"])
             for f in fixed
         ],
         drafts={d["id"]: sch.DraftInfo(d["id"], d["semester_id"], d["name"], d["is_primary"]) for d in drafts},
@@ -204,7 +205,7 @@ def draft_detail(L: Loaded, draft_id: uuid.UUID) -> dict[str, Any]:
         t, co = ctx.assign.get(s.id, (None, None))
         r = by_subject[str(s.id)]
         subjects.append({
-            "id": str(s.id), "name": s.name, "code": s.code, "credits": s.credits, "is_lab": s.is_lab, "special_kind": s.special_kind,
+            "id": str(s.id), "name": s.name, "code": s.code, "credits": s.credits, "weekly_lectures": s.weekly, "is_lab": s.is_lab, "special_kind": s.special_kind,
             "group_id": str(s.group_id) if s.group_id else None, "group_name": s.group_name,
             "teacher_name": ctx.person_name(t) if t else None, "co_teacher_name": ctx.person_name(co) if co else None,
             "required": r["required"], "placed": r["placed"], "status": r["status"],

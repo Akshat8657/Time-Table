@@ -18,6 +18,7 @@ import type { ClassTiming, DayInfo, GridInfo, TimingPayload } from '../lib/types
 import { useApi } from '../lib/useApi'
 
 interface Draft {
+  college_name: string
   college_start: string
   college_end: string
   lecture_minutes: string
@@ -30,6 +31,7 @@ interface Draft {
 
 function toDraft(t: TimingPayload): Draft {
   return {
+    college_name: t.college.college_name ?? '',
     college_start: t.college.college_start,
     college_end: t.college.college_end,
     lecture_minutes: String(t.college.lecture_minutes),
@@ -169,7 +171,7 @@ export default function TimingPage() {
   const dirtyCollege = useMemo(() => {
     if (!draft || !timing.data) return false
     const base = toDraft(timing.data)
-    return (['college_start', 'college_end', 'lecture_minutes', 'break_minutes', 'days_per_week'] as const).some((k) => draft[k] !== base[k])
+    return (['college_name', 'college_start', 'college_end', 'lecture_minutes', 'break_minutes', 'days_per_week'] as const).some((k) => draft[k] !== base[k])
   }, [draft, timing.data])
   const dirtyLunch = useMemo(() => {
     if (!draft || !timing.data) return false
@@ -187,6 +189,7 @@ export default function TimingPage() {
       const res = await api<{ warnings: string[] }>('/timing/college', {
         method: 'PUT',
         body: {
+          ...(draft.college_name.trim() ? { college_name: draft.college_name.trim() } : {}),
           college_start: draft.college_start,
           college_end: draft.college_end,
           lecture_minutes: Number(draft.lecture_minutes),
@@ -271,6 +274,16 @@ export default function TimingPage() {
             icon={Clock}
             action={!isAdmin ? <Badge><Lock className="size-3" aria-hidden="true" /> Set by the administrator</Badge> : undefined}
           >
+            <TextField
+              label="College name"
+              className="mb-4 max-w-xl"
+              value={draft.college_name}
+              onChange={(e) => set('college_name', e.target.value)}
+              disabled={!isAdmin}
+              error={errors.college_name}
+              maxLength={120}
+              hint="Printed at the top of every PDF and Excel timetable."
+            />
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <TextField label="College opens" type="time" value={draft.college_start} onChange={(e) => set('college_start', e.target.value)} disabled={!isAdmin} error={errors.college_start} />
               <TextField label="College closes" type="time" value={draft.college_end} onChange={(e) => set('college_end', e.target.value)} disabled={!isAdmin} error={errors.college_end} />

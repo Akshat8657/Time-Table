@@ -72,7 +72,7 @@ class Unit:
     subject_ids: tuple[uuid.UUID, ...]
     teachers: tuple[uuid.UUID, ...]          # teacher + co-teacher of every option, deduplicated
     length: int                              # 1, or 2 for a lab block
-    needed: int                              # how many placements a week (credits; a lab = 1 block)
+    needed: int                              # how many placements a week (weekly lectures = credits unless overridden; a lab = 1 block)
     name: str                                # "Maths" or "AI Major ∥ Cyber Major"
     is_lab: bool
     group_id: uuid.UUID | None
@@ -148,13 +148,13 @@ def build_problem(ctx: Ctx, *, locked_by_class: dict[uuid.UUID, list] | None = N
                     teachers.extend(ctx.teachers(m.id))
                 units.append(Unit(
                     len(units), cid, tuple(m.id for m in members), tuple(dict.fromkeys(teachers)),
-                    2 if s.is_lab else 1, 1 if s.is_lab else max(m.credits for m in members),
+                    2 if s.is_lab else 1, 1 if s.is_lab else max(m.weekly for m in members),
                     " ∥ ".join(m.name for m in members), s.is_lab, s.group_id,
                 ))
             else:
                 units.append(Unit(
                     len(units), cid, (s.id,), tuple(dict.fromkeys(ctx.teachers(s.id))),
-                    2 if s.is_lab else 1, 1 if s.is_lab else s.credits, s.name, s.is_lab, None,
+                    2 if s.is_lab else 1, 1 if s.is_lab else s.weekly, s.name, s.is_lab, None,
                 ))
 
     lunch_between = {start for start in range(1, total) if ctx.grid.lunch_inside(start, 2)}
@@ -216,9 +216,9 @@ def precheck(problem: Problem) -> list[dict[str, str]]:
             days = ", ".join(f"{DAY_SHORT[d]} {per_day.get(d, 0)}" for d in range(1, problem.days_per_week + 1) if per_day.get(d, 0))
             findings.append({
                 "kind": "class_capacity", "about": problem.labels[cid],
-                "message": f"{problem.labels[cid]} needs {demand} lecture periods a week (credits + lab blocks), "
+                "message": f"{problem.labels[cid]} needs {demand} lecture periods a week (weekly lectures + lab blocks), "
                            f"but its day-wise schedule leaves only {free} free ({days}). {demand - free} will not fit - "
-                           "give the class more periods (Timing Setup) or lower some credits.",
+                           "give the class more periods (Timing Setup) or lower some subjects' weekly lectures.",
             })
     # a teacher inside one class's window
     per_tc: dict[tuple[uuid.UUID, uuid.UUID], int] = defaultdict(int)

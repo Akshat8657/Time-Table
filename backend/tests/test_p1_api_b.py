@@ -400,7 +400,8 @@ def week(p1, label="ZZ Course - Sem 1"):
 
 def test_the_real_college_timing_is_the_default_and_the_grid_is_auto_built(p1):
     r = p1.api(p1.hod, "GET", "/api/timing").json()
-    assert r["college"] == REAL
+    assert {k: r["college"][k] for k in REAL} == REAL
+    assert r["college"]["college_name"]                                   # the name printed on the PDF / Excel exports
     assert r["school"]["id"] == p1.school and r["school"]["lunch_start"] is None          # the test school has no lunch yet
     periods = r["grid"]["periods"]
     assert len(periods) == 6 and (periods[0]["start"], periods[0]["end"]) == ("10:00", "11:00") and periods[1]["start"] == "11:05"

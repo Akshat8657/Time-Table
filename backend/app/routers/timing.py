@@ -18,7 +18,7 @@ from ..services import terms as term_svc
 from ..services import timing as timing_svc
 from ..services.grid import build_grid, to_min
 from ..services.timing import DayRule
-from ..validation import DAY_NAMES, DAY_SHORT, HHMM, hm
+from ..validation import DAY_NAMES, DAY_SHORT, HHMM, hm, text
 
 router = APIRouter(prefix="/api/timing", tags=["timing"])
 ROLES = ("admin", "hod")
@@ -108,6 +108,7 @@ class CollegeIn(BaseModel):
     lecture_minutes: int = Field(ge=15, le=180)
     break_minutes: int = Field(ge=0, le=30)
     days_per_week: int
+    college_name: text(1, 120) | None = None  # type: ignore[valid-type]  # printed on every PDF / Excel export; None = unchanged
 
     @model_validator(mode="after")
     def _ok(self):
@@ -135,9 +136,11 @@ async def save_college(body: CollegeIn, user: CurrentUser = Depends(require_role
         await conn.execute(
             """
             update public.college_settings
-               set college_start = $1, college_end = $2, lecture_minutes = $3, break_minutes = $4, days_per_week = $5, updated_by = $6
+               set college_start = $1, college_end = $2, lecture_minutes = $3, break_minutes = $4, days_per_week = $5, updated_by = $6,
+                   college_name = coalesce($7, college_name)
             """,
             body.college_start, body.college_end, body.lecture_minutes, body.break_minutes, body.days_per_week, uuid.UUID(user.id),
+            body.college_name,
         )
         await audit.record(
             conn, user, "update", "college_timing", "college",

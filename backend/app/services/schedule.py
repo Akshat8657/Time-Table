@@ -42,6 +42,12 @@ class Subj:
     special_kind: str | None  # 'PE' / 'SOL' (their slots come from Fixed Slots only)
     group_id: uuid.UUID | None
     group_name: str | None
+    weekly_lectures: int | None = None  # optional override of the lectures needed per week (None = the credits)
+
+    @property
+    def weekly(self) -> int:
+        """Lectures required per week: the HOD's override if one is set, otherwise the credits."""
+        return self.weekly_lectures if self.weekly_lectures is not None else self.credits
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,7 @@ class Fixed:
     label: str
     teacher_id: uuid.UUID | None
     co_teacher_id: uuid.UUID | None
+    subject_id: uuid.UUID | None = None  # the subject a PE / SOL / locked slot belongs to (hours tracking)
 
 
 @dataclass(frozen=True)
@@ -405,7 +412,7 @@ def check_unit(
         if not ctx.teachers(s.id):
             res.soft.append(Issue("NO_TEACHER", False, f"'{s.name}' has no teacher yet (Assignment screen)."))
         have = sum(1 for e in ctx.entries_by_draft.get(draft_id, []) if e.subject_id == s.id and e.key not in ignore)
-        need = 1 if s.is_lab else s.credits
+        need = 1 if s.is_lab else s.weekly
         if have + 1 > need:
             res.soft.append(Issue("OVER_REQUIRED", False, f"'{s.name}' already has all its {need} {'block' if s.is_lab else 'lecture(s)'} - this would be one more."))
     if not res.hard:
@@ -458,8 +465,8 @@ def swap_check(ctx: Ctx, draft_id: uuid.UUID, sem_id: uuid.UUID, a: list[Entry],
 
 # ---------------------------------------------------------------------------------------------------- completeness
 def completeness(ctx: Ctx, sem_id: uuid.UUID, draft_id: uuid.UUID | None) -> dict[str, Any]:
-    """Per subject (and per elective group): the lectures placed against the lectures required (credits; a lab = 1 block;
-    PE / SOL = their locked slot)."""
+    """Per subject (and per elective group): the lectures placed against the lectures required (the weekly-lectures value,
+    which is the credits unless the HOD set an override; a lab = 1 block; PE / SOL = their locked slot)."""
     placed = Counter(e.subject_id for e in ctx.entries_by_draft.get(draft_id, [])) if draft_id else Counter()
     fixed_kinds: dict[str, set[uuid.UUID]] = defaultdict(set)
     for (sid, _day), rows in ctx.fixed_by_class.items():
@@ -475,7 +482,7 @@ def completeness(ctx: Ctx, sem_id: uuid.UUID, draft_id: uuid.UUID | None) -> dic
         elif s.is_lab:
             required, got, kind = 1, placed[s.id], "lab"
         else:
-            required, got, kind = s.credits, placed[s.id], "lecture"
+            required, got, kind = s.weekly, placed[s.id], "lecture"
         rows.append({
             "subject_id": str(s.id), "required": required, "placed": got, "kind": kind,
             "status": "missing" if got < required else ("over" if got > required else "complete"),

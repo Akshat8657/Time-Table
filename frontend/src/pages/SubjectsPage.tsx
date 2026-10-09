@@ -34,6 +34,7 @@ interface SubjectForm {
   name: string
   code: string
   credits: string
+  weekly_lectures: string
   semester_hours: string
   is_lab: boolean
   is_elective: boolean
@@ -42,7 +43,7 @@ interface SubjectForm {
 }
 
 const EMPTY: SubjectForm = {
-  semester_id: '', name: '', code: '', credits: '3', semester_hours: '45', is_lab: false, is_elective: false, special_kind: '', elective_group_id: '',
+  semester_id: '', name: '', code: '', credits: '3', weekly_lectures: '', semester_hours: '45', is_lab: false, is_elective: false, special_kind: '', elective_group_id: '',
 }
 
 function SubjectDialog({
@@ -70,6 +71,7 @@ function SubjectDialog({
     if (subject) {
       setForm({
         semester_id: subject.semester_id, name: subject.name, code: subject.code, credits: String(subject.credits),
+        weekly_lectures: subject.weekly_lectures === null ? '' : String(subject.weekly_lectures),
         semester_hours: String(subject.semester_hours), is_lab: subject.is_lab, is_elective: subject.is_elective,
         special_kind: subject.special_kind ?? '', elective_group_id: subject.elective_group_id ?? '',
       })
@@ -90,6 +92,7 @@ function SubjectDialog({
       name: form.name,
       code: form.code,
       credits: Number(form.credits),
+      weekly_lectures: special || form.is_lab || form.weekly_lectures.trim() === '' ? null : Number(form.weekly_lectures),
       semester_hours: Number(form.semester_hours),
       is_lab: form.is_lab && !special,
       is_elective: form.is_elective && !special,
@@ -154,9 +157,22 @@ function SubjectDialog({
             value={form.credits}
             onChange={(e) => set('credits', e.target.value)}
             error={errors.credits}
-            hint={special ? 'For PE and SOL the credits do not decide the lectures.' : 'Credits = the minimum number of lectures per week.'}
+            hint={special ? 'For PE and SOL the credits do not decide the lectures.' : 'The credit value of the subject (shown for information).'}
             required
           />
+          {!special && !form.is_lab && (
+            <TextField
+              label="Weekly lectures (optional)"
+              type="number"
+              min={1}
+              max={30}
+              placeholder={form.credits}
+              value={form.weekly_lectures}
+              onChange={(e) => set('weekly_lectures', e.target.value)}
+              error={errors.weekly_lectures}
+              hint={`How many lectures a week the timetable must place. Empty = same as the credits (${form.credits || '?'}).`}
+            />
+          )}
           <TextField
             label="Total hours in the semester"
             type="number"
@@ -342,7 +358,7 @@ export default function SubjectsPage() {
         title="Subjects & Credits"
         subtitle={
           <>
-            Subjects of the classes running in <span className="font-semibold text-ink">{active?.name ?? '…'}</span>. Credits = the minimum lectures per week; every subject also has the total hours to complete in the semester.
+            Subjects of the classes running in <span className="font-semibold text-ink">{active?.name ?? '…'}</span>. Credits are the credit value of a subject; the timetable places its weekly lectures (equal to the credits unless you set a different number); every subject also has the total hours to complete in the semester.
           </>
         }
       />
@@ -415,6 +431,7 @@ export default function SubjectsPage() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge>{s.credits} credits</Badge>
+                      {!s.special_kind && !s.is_lab && <Badge tone={s.weekly_lectures !== null ? 'brand' : 'neutral'}>{s.weekly_effective} lectures / week</Badge>}
                       <Badge>{s.semester_hours} h</Badge>
                       {s.special_kind && <Badge tone="warning">{s.special_kind} · double block</Badge>}
                       {s.is_lab && <Badge tone="info">Lab</Badge>}
@@ -438,6 +455,14 @@ export default function SubjectsPage() {
                   },
                   { key: 'class', header: 'Class', cell: (s) => <span className="whitespace-nowrap text-muted">{s.class_label}</span> },
                   { key: 'credits', header: 'Credits', className: 'tabular-nums', cell: (s) => s.credits },
+                  {
+                    key: 'weekly',
+                    header: 'Lectures / week',
+                    hideBelow: 'sm',
+                    className: 'tabular-nums',
+                    cell: (s) =>
+                      s.special_kind ? <span className="text-subtle">fixed slot</span> : s.is_lab ? <span className="text-subtle">1 block</span> : s.weekly_lectures !== null ? <span className="font-semibold text-brand-text" title="set by the HOD (credits are shown separately)">{s.weekly_lectures}</span> : <span className="text-muted">{s.credits}</span>,
+                  },
                   { key: 'hours', header: 'Hours', hideBelow: 'sm', className: 'tabular-nums', cell: (s) => s.semester_hours },
                   {
                     key: 'type',

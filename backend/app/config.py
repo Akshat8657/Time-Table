@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     db_pool_min: int = 3
     db_pool_max: int = 6
 
+    # --- Web Push (browser notifications). Empty = Web Push is off; the in-app bell still works. Made by scripts/gen_vapid.py ---
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@timetablepro.example"
+
     # ------------------------------------------------------------------ validators
     @field_validator("supabase_url", mode="before")
     @classmethod
@@ -94,6 +99,10 @@ class Settings(BaseSettings):
         return v
 
     # ------------------------------------------------------------------ derived values
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.vapid_public_key.strip() and self.vapid_private_key.strip())
+
     @property
     def is_dev(self) -> bool:
         return self.app_env.lower() != "production"

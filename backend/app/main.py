@@ -27,7 +27,8 @@ from .errors import ApiError
 from .migrations import pending_versions
 from .routers import auth as auth_routes
 from .routers import (
-    assignments, calendar, dashboards, drafts, fixed_slots, generation, health, imports, profile, structure, subjects, terms, timing, users,
+    assignments, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, notifications, profile, publish,
+    structure, subjects, terms, timing, users, views,
 )
 from .security import sessions
 from .security.jwt_verify import TokenVerifier
@@ -236,7 +237,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
-    expose_headers=["Retry-After"],
+    expose_headers=["Retry-After", "Content-Disposition"],
     max_age=600,
 )
 # Only these Host names are served (protects against DNS-rebinding tricks).
@@ -256,5 +257,11 @@ app.include_router(fixed_slots.router)
 app.include_router(drafts.router)
 app.include_router(drafts.conflicts_router)
 app.include_router(generation.router)
+app.include_router(publish.router)
+app.include_router(views.router)
+app.include_router(exports.router)
+app.include_router(hours.router)
+app.include_router(notifications.router)
+app.include_router(notifications.push_router)
 app.include_router(calendar.router)
 app.include_router(imports.router)

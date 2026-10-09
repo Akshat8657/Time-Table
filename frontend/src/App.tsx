@@ -1,5 +1,6 @@
 import { lazy, type ComponentType } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { useAuth } from './auth/AuthProvider'
 import { PublicOnly, RequireAuth, RequireRole, RoleRedirect } from './auth/guards'
 import { CookieBanner } from './consent/CookieBanner'
 import { AppShell } from './layouts/AppShell'
@@ -25,6 +26,12 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
   profile: lazy(() => import('./pages/MyProfilePage')),
   drafts: lazy(() => import('./pages/DraftsPage')),
   conflicts: lazy(() => import('./pages/ConflictsPage')),
+  publish: lazy(() => import('./pages/PublishPage')),
+  timetables: lazy(() => import('./pages/TimetablesPage')),
+  hours: lazy(() => import('./pages/HoursPage')),
+  'my-timetable': lazy(() => import('./pages/MyTimetablePage')),
+  'my-subjects': lazy(() => import('./pages/MySubjectsPage')),
+  notifications: lazy(() => import('./pages/NotificationsPage')),
 }
 
 // the weekly grid editor of one draft (a sub-page of "Generate Timetable")
@@ -68,6 +75,20 @@ function roleBranch(role: Role, Dashboard: ComponentType) {
   )
 }
 
+/** Links inside notifications are the same for everybody ("/my/timetable"); each role lands on its own screen. */
+const MY_SCREENS: Record<string, Partial<Record<Role, string>>> = {
+  timetable: { teacher: '/teacher/timetable', hod: '/hod/my-schedule/timetable' },
+  subjects: { teacher: '/teacher/subjects', hod: '/hod/my-schedule/subjects' },
+  notifications: { teacher: '/teacher/notifications', hod: '/hod/notifications', admin: '/admin/notifications' },
+}
+
+function MyRedirect() {
+  const { user } = useAuth()
+  const { screen = '' } = useParams()
+  const to = user ? MY_SCREENS[screen]?.[user.role] : undefined
+  return <Navigate to={to ?? (user ? HOME[user.role] : '/')} replace />
+}
+
 export default function App() {
   return (
     <>
@@ -86,6 +107,14 @@ export default function App() {
           element={
             <RequireAuth>
               <ChangePasswordPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my/:screen"
+          element={
+            <RequireAuth>
+              <MyRedirect />
             </RequireAuth>
           }
         />

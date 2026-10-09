@@ -4,12 +4,15 @@ import { CalendarCheck, ChevronDown, LogOut, Menu, TriangleAlert, X } from 'luci
 import { useAuth } from '../auth/AuthProvider'
 import { Button } from '../components/Button'
 import { Logo } from '../components/Logo'
+import { NotificationBell } from '../components/NotificationBell'
 import { Skeleton } from '../components/Panel'
+import { PushPrompt } from '../components/PushAlerts'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { ToastProvider } from '../components/Toast'
 import { useConsent } from '../consent/ConsentProvider'
 import { COOKIE_NAMES, storeConvenience } from '../lib/cookies'
 import { initials } from '../lib/format'
+import { NotificationsProvider } from '../lib/notifications'
 import { findItem, NAV, ROLE_LABEL, ROLE_PREFIX, type NavItem } from '../lib/nav'
 import { SchoolScopeProvider } from '../lib/scope'
 import { TermProvider, useTerm } from '../lib/term'
@@ -156,7 +159,9 @@ export function AppShell() {
     <ToastProvider>
       <TermProvider>
         <SchoolScopeProvider>
-          <ShellLayout />
+          <NotificationsProvider>
+            <ShellLayout />
+          </NotificationsProvider>
         </SchoolScopeProvider>
       </TermProvider>
     </ToastProvider>
@@ -239,11 +244,13 @@ function ShellLayout() {
             </p>
           </div>
           <TermChip />
+          <NotificationBell />
           <ThemeToggle />
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <div className={`mx-auto w-full ${wide ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
+            <PushPrompt />
             <Suspense
               fallback={
                 <div className="space-y-4" aria-busy="true" aria-label="Loading the screen">

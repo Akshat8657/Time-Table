@@ -43,6 +43,7 @@ TEACHER_COLUMNS = {
 SUBJECT_COLUMNS = {
     "course": "course", "semester": "semester", "name": "subjectname", "code": "subjectcode", "credits": "credits",
     "hours": "semesterhours", "lab": "lab", "elective": "elective", "group": "electivegroup", "special": "special",
+    "weekly": "weeklylectures",
 }
 
 
@@ -70,16 +71,17 @@ async def template(kind: Literal["teachers", "subjects"], user: CurrentUser = De
         data = excel.build_template(
             "Subjects",
             ["Course *", "Semester *", "Subject Name *", "Subject Code *", "Credits *", "Semester Hours *",
-             "Lab (Yes/No)", "Elective (Yes/No)", "Elective Group", "Special (PE / SOL)"],
-            [14, 10, 34, 14, 10, 14, 12, 14, 18, 16],
-            [["B.Sc. IT", 5, "Database Management", "BSC501", 4, 60, "No", "No", "", ""],
-             ["B.Sc. IT", 5, "Artificial Intelligence", "BSC5E1", 3, 45, "No", "Yes", "Group A", ""],
-             ["B.Sc. IT", 5, "Physical Education", "BSCPE5", 1, 30, "No", "No", "", "PE"]],
+             "Lab (Yes/No)", "Elective (Yes/No)", "Elective Group", "Special (PE / SOL)", "Weekly Lectures (optional)"],
+            [14, 10, 34, 14, 10, 14, 12, 14, 18, 16, 16],
+            [["B.Sc. IT", 5, "Database Management", "BSC501", 4, 60, "No", "No", "", "", 3],
+             ["B.Sc. IT", 5, "Artificial Intelligence", "BSC5E1", 3, 45, "No", "Yes", "Group A", "", ""],
+             ["B.Sc. IT", 5, "Physical Education", "BSCPE5", 1, 30, "No", "No", "", "PE", ""]],
             ["How to fill the Subjects sheet",
              "* = required. One subject per row. Delete the example rows before uploading your own list.",
              "Course: the course name or code exactly as in College Setup (for example B.Sc. IT).",
              "Semester: a number. Only semesters that run in the ACTIVE term are accepted (odd term = 1, 3, 5, 7; even term = 2, 4, 6).",
-             "Credits = minimum lectures per week. Semester Hours = total hours for the semester.",
+             "Credits = the credit value of the subject. Semester Hours = total hours for the semester.",
+             "Weekly Lectures (optional): how many lectures a week the timetable must place. Leave empty = same as Credits.",
              "Lab: a lab session is always 2 lectures back-to-back.",
              "Elective Group: only for electives. Electives with the same group name run in parallel. Give them the same credits.",
              "Special: leave empty, or PE / SOL (their weekly lectures come from the Fixed Slots screen, not from credits).",
@@ -275,7 +277,11 @@ async def import_subjects(
                 errors.append(f"Semester {n} does not run in the active term ({term_svc.term_name(term['kind'], term['year'])}).")
             else:
                 semester_id = semesters.get((course["id"], n))
-        credits = hours = None
+        credits = hours = weekly = None
+        if item.get("weekly", "") and (not item["weekly"].isdigit() or not 1 <= int(item["weekly"]) <= 30):
+            errors.append("Weekly Lectures must be empty or a whole number from 1 to 30.")
+        elif item.get("weekly", ""):
+            weekly = int(item["weekly"])
         if not item.get("credits", "").isdigit() or not 1 <= int(item["credits"]) <= 30:
             errors.append("Credits must be a whole number from 1 to 30.")
         else:
@@ -303,7 +309,7 @@ async def import_subjects(
         results.append(_row_result(number, f"{name or '(no name)'} ({code})", errors))
         if not errors and semester_id is not None:
             prepared[number] = {
-                "semester_id": semester_id, "name": name, "code": code, "credits": credits, "hours": hours,
+                "semester_id": semester_id, "name": name, "code": code, "credits": credits, "hours": hours, "weekly": weekly,
                 "is_lab": bool(lab), "is_elective": bool(elective), "special": special, "group": group,
             }
 
@@ -331,11 +337,11 @@ async def import_subjects(
                         new_id = await conn.fetchval(
                             """
                             insert into public.subjects (school_id, semester_id, name, code, credits, semester_hours, is_lab,
-                                                         is_elective, special_kind, elective_group_id, created_by)
-                            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id
+                                                         is_elective, special_kind, elective_group_id, created_by, weekly_lectures)
+                            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id
                             """,
                             sid, data["semester_id"], data["name"], data["code"], data["credits"], data["hours"],
-                            data["is_lab"], data["is_elective"], data["special"], gid, uuid.UUID(user.id),
+                            data["is_lab"], data["is_elective"], data["special"], gid, uuid.UUID(user.id), data["weekly"],
                         )
                         await audit.record(
                             conn, user, "create", "subject", new_id,

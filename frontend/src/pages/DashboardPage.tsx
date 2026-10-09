@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
-  ArrowRight, Building2, CalendarCheck, CalendarDays, CalendarOff, Check, CircleDashed, Clock, Cookie, ListChecks, Repeat, ShieldCheck,
-  TriangleAlert, Users,
+  ArrowRight, Building2, CalendarCheck, CalendarDays, CalendarOff, Check, CircleDashed, Clock, Cookie, ListChecks, Repeat, Send, ShieldCheck,
+  Timer, TriangleAlert, Users,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Alert } from '../components/Alert'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import { EmptyState, PageHeader, Panel, Skeleton, StatCard } from '../components/Panel'
+import { TodayPanel } from '../components/TodayPanel'
 import { useConsent } from '../consent/ConsentProvider'
+import { useNotifications } from '../lib/notifications'
 import { firstName, formatDuration, greeting } from '../lib/format'
 import { formatDate, formatRange } from '../lib/helpers'
 import { ROLE_LABEL, ROLE_PREFIX } from '../lib/nav'
 import { runningSemesters } from '../lib/term'
-import type { Role, Term } from '../lib/types'
+import type { HoursSummary, MyHoursPayload, Role, Term } from '../lib/types'
 import { useApi } from '../lib/useApi'
 
 interface Upcoming {
@@ -39,7 +41,16 @@ interface Setup {
   dates_set?: number
   no_pe_sol_classes?: number
 }
+interface PublishBlock {
+  classes: number
+  published: number
+  with_primary: number
+}
+interface HoursSummaryPayload {
+  schools: { school_id: string; school_name: string; summary: HoursSummary | null }[]
+}
 interface AdminOverview {
+  school_blocks?: { school_id: string; school_name: string; publish: PublishBlock | null }[]
   schools: { id: string; name: string; is_active: boolean }[]
   counts: { admins: number; hods: number; teachers: number }
   active_term: Term | null
@@ -52,6 +63,7 @@ interface HodOverview {
   counts?: { teachers: number }
   active_term: Term | null
   setup: Setup | null
+  publish?: PublishBlock | null
   upcoming: Upcoming[]
 }
 interface TeacherOverview {
@@ -62,13 +74,23 @@ interface TeacherOverview {
 }
 
 /** The four "at a glance" cards every dashboard shows (Section 6). Real numbers arrive with the later phases. */
-function GlanceCards({ upcoming }: { upcoming?: Upcoming[] }) {
+function GlanceCards({ upcoming, hours }: { upcoming?: Upcoming[]; hours?: HoursSummary | null }) {
   const next = upcoming?.[0]
+  const hoursCard =
+    hours === undefined
+      ? { value: '…', caption: 'Loading…' }
+      : hours === null
+        ? { value: '—', caption: 'Set the active term to start tracking' }
+        : hours.short_subjects > 0
+          ? { value: hours.short_subjects, caption: `${hours.short_hours} ${hours.short_hours === 1 ? 'hour' : 'hours'} short in total` }
+          : hours.unpublished_classes > 0
+            ? { value: '—', caption: 'Publish the timetable to start tracking' }
+            : { value: 0, caption: 'Every subject is on track' }
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard icon={CalendarOff} label="Today’s absents" value="—" caption="Tracking starts in Phase 5" />
       <StatCard icon={Repeat} label="Pending substitutions" value="—" caption="Available from Phase 5" />
-      <StatCard icon={TriangleAlert} label="Subject hours short" value="—" caption="Live tracking arrives in Phase 4" />
+      <StatCard icon={TriangleAlert} label="Subjects short of hours" value={hoursCard.value} caption={hoursCard.caption} />
       <StatCard
         icon={CalendarDays}
         label="Upcoming holiday / event"
@@ -136,6 +158,52 @@ function TermPanel({ term, canChange, role }: { term: Term | null | undefined; c
         <Link to={`${ROLE_PREFIX[role]}/active-term`} className="mt-4 inline-flex items-center gap-1 text-[13px] font-medium text-brand-text hover:underline">
           {term ? 'Change the term or set semester dates' : 'Choose the active term'} <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
+      )}
+    </Panel>
+  )
+}
+
+/** Subjects that cannot deliver their semester hours (red) - links to the Semester Hours screen. */
+function HoursPanel({ summary, linkTo, mine = false }: { summary: HoursSummary | null | undefined; linkTo: string; mine?: boolean }) {
+  return (
+    <Panel
+      title={mine ? 'My subjects - hours' : 'Semester hours'}
+      icon={Timer}
+      action={<Link to={linkTo} className="text-[13px] font-medium text-brand-text hover:underline">{mine ? 'My Subjects' : 'Open'}</Link>}
+    >
+      {summary === undefined ? (
+        <Skeleton className="h-16" />
+      ) : summary === null || summary.subjects === 0 ? (
+        <p className="text-sm text-muted">{mine ? 'You have no subject in the published timetable yet.' : 'Nothing to track yet - choose the term and publish the timetable.'}</p>
+      ) : summary.short_subjects === 0 ? (
+        <p className="flex items-center gap-2 text-sm text-success"><Check className="size-4" aria-hidden="true" /> {mine ? 'All your subjects can deliver their hours.' : `All ${summary.subjects} subjects can deliver their hours.`}</p>
+      ) : (
+        <ul className="space-y-2" data-testid="hours-alerts">
+          {summary.worst.map((w) => (
+            <li key={w.subject_id} className="flex items-center justify-between gap-3 rounded-xl border border-danger-line bg-danger-soft px-3 py-2 text-sm">
+              <span className="min-w-0 truncate text-ink"><span className="font-medium">{w.name}</span> <span className="text-muted">· {w.class_label}</span></span>
+              <span className="shrink-0 font-semibold text-danger">short by {w.shortfall} h</span>
+            </li>
+          ))}
+          {summary.short_subjects > summary.worst.length && <li className="text-[13px] text-muted">…and {summary.short_subjects - summary.worst.length} more</li>}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+function PublishPanel({ block, linkTo }: { block: PublishBlock | null | undefined; linkTo: string }) {
+  return (
+    <Panel title="Publish" icon={Send} action={<Link to={linkTo} className="text-[13px] font-medium text-brand-text hover:underline">Open</Link>}>
+      {block === undefined ? (
+        <Skeleton className="h-12" />
+      ) : block === null ? (
+        <p className="text-sm text-muted">Choose the active term first.</p>
+      ) : (
+        <p className="text-sm leading-relaxed text-muted">
+          <span className="font-semibold text-ink">{block.published} of {block.classes}</span> classes are live for teachers.{' '}
+          {block.with_primary > block.published ? `${block.with_primary - block.published} more ${block.with_primary - block.published === 1 ? 'has a' : 'have a'} primary draft ready to publish.` : block.classes > block.published ? 'The others still need a primary draft.' : 'Everything is published.'}
+        </p>
       )}
     </Panel>
   )
@@ -220,7 +288,7 @@ function Welcome({ role }: { role: Role }) {
               ? `Here is ${user?.school_name ?? 'your school'} at a glance.`
               : 'Here is your day at a glance.'
         }
-        badge="Phase 1"
+        badge="Phase 4"
       />
     </>
   )
@@ -283,10 +351,31 @@ function SetupChecklist({ setup }: { setup: Setup | null | undefined }) {
 
 export function AdminDashboard() {
   const { data, error, loading, reload } = useApi<AdminOverview>('/admin/overview')
+  const hours = useApi<HoursSummaryPayload>('/hours/summary')
+  const all = hours.data?.schools ?? []
+  const combined: HoursSummary | null | undefined =
+    hours.loading && !hours.data
+      ? undefined
+      : all.length === 0
+        ? null
+        : {
+            subjects: all.reduce((n, s) => n + (s.summary?.subjects ?? 0), 0),
+            short_subjects: all.reduce((n, s) => n + (s.summary?.short_subjects ?? 0), 0),
+            short_hours: all.reduce((n, s) => n + (s.summary?.short_hours ?? 0), 0),
+            unpublished_classes: all.reduce((n, s) => n + (s.summary?.unpublished_classes ?? 0), 0),
+            worst: all.flatMap((s) => s.summary?.worst ?? []).sort((a, b) => b.shortfall - a.shortfall).slice(0, 5),
+          }
+  const blocks = data?.school_blocks ?? []
+  const publishAll: PublishBlock | null = blocks.length
+    ? blocks.reduce(
+        (a, b) => ({ classes: a.classes + (b.publish?.classes ?? 0), published: a.published + (b.publish?.published ?? 0), with_primary: a.with_primary + (b.publish?.with_primary ?? 0) }),
+        { classes: 0, published: 0, with_primary: 0 },
+      )
+    : null
   return (
     <>
       <Welcome role="admin" />
-      <GlanceCards upcoming={data?.upcoming} />
+      <GlanceCards upcoming={data?.upcoming} hours={combined} />
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Panel title="Schools" icon={Building2} className="lg:col-span-2">
           {loading ? (
@@ -345,6 +434,10 @@ export function AdminDashboard() {
         </Panel>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <HoursPanel summary={combined} linkTo="/admin/semester-hours" />
+        <PublishPanel block={loading ? undefined : publishAll} linkTo="/admin/publish" />
+      </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <TermPanel term={loading ? undefined : (data?.active_term ?? null)} canChange role="admin" />
         <UpcomingPanel upcoming={data?.upcoming ?? []} linkTo="/admin/holidays-events" />
       </div>
@@ -357,11 +450,16 @@ export function AdminDashboard() {
 
 export function HodDashboard() {
   const { data, error, loading, reload } = useApi<HodOverview>('/hod/overview')
+  const hours = useApi<HoursSummaryPayload>('/hours/summary')
+  const summary: HoursSummary | null | undefined = hours.loading && !hours.data ? undefined : (hours.data?.schools[0]?.summary ?? null)
+  const { arrivals } = useNotifications()
+  const mine = useApi<MyHoursPayload>(`/hours/my?_=${arrivals}`)
+  const mySummary: HoursSummary | null | undefined = mine.loading && !mine.data ? undefined : (mine.data?.summary ?? null)
   const navigate = useNavigate()
   return (
     <>
       <Welcome role="hod" />
-      <GlanceCards upcoming={data?.upcoming} />
+      <GlanceCards upcoming={data?.upcoming} hours={summary} />
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Panel title="My school" icon={Building2}>
           {loading ? (
@@ -389,7 +487,7 @@ export function HodDashboard() {
 
         <Panel title="Teacher mode" icon={Clock}>
           <p className="text-sm leading-relaxed text-muted">
-            You are also a teacher. Your own timetable, preferences, leave and substitution offers live under{' '}
+            You are also a teacher. Your own timetable, subjects, preferences, leave and substitution offers live under{' '}
             <span className="font-medium text-ink">My Schedule</span> in the menu.
           </p>
           <Button
@@ -401,6 +499,14 @@ export function HodDashboard() {
             Open My Schedule
           </Button>
         </Panel>
+      </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <HoursPanel summary={summary} linkTo="/hod/semester-hours" />
+        <PublishPanel block={loading ? undefined : (data?.publish ?? null)} linkTo="/hod/publish" />
+      </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <TodayPanel title="Today - my own lectures" />
+        <HoursPanel summary={mySummary} linkTo="/hod/my-schedule/subjects" mine />
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -420,16 +526,15 @@ export function HodDashboard() {
 
 export function TeacherDashboard() {
   const { data, error, loading, reload } = useApi<TeacherOverview>('/teacher/overview')
+  const { arrivals } = useNotifications()
+  const mine = useApi<MyHoursPayload>(`/hours/my?_=${arrivals}`)
+  const summary: HoursSummary | null | undefined = mine.loading && !mine.data ? undefined : (mine.data?.summary ?? null)
   return (
     <>
       <Welcome role="teacher" />
-      <GlanceCards upcoming={data?.upcoming} />
+      <GlanceCards upcoming={data?.upcoming} hours={summary} />
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Panel title="Today’s schedule" icon={Clock} className="lg:col-span-2">
-          <EmptyState icon={CalendarDays} title="No classes to show yet">
-            Once the timetable is published, today&apos;s lectures will appear here with their times and classes.
-          </EmptyState>
-        </Panel>
+        <TodayPanel />
         <Panel title="My school" icon={Building2}>
           {loading ? (
             <Skeleton className="h-12" />
@@ -446,6 +551,7 @@ export function TeacherDashboard() {
         </Panel>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <HoursPanel summary={summary} linkTo="/teacher/subjects" mine />
         <TermPanel term={loading ? undefined : (data?.active_term ?? null)} canChange={false} role="teacher" />
         <UpcomingPanel upcoming={data?.upcoming ?? []} linkTo={null} />
       </div>

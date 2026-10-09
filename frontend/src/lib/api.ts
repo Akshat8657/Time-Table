@@ -234,3 +234,53 @@ export async function apiLogout(): Promise<void> {
     /* even if the server cannot be reached, we still sign out locally */
   }
 }
+
+/**
+ * Opens a live server-sent-events feed with the login token (the browser's own EventSource cannot send it).
+ * Calls `onEvent(name, data)` for every message; resolves when the server ends the stream, rejects on a problem.
+ * The caller reconnects (see lib/notifications.tsx).
+ */
+export async function openStream(path: string, onEvent: (name: string, data: string) => void, signal: AbortSignal): Promise<void> {
+  await ensureToken()
+  const open = () =>
+    fetch(`${API_BASE}/api${path}`, {
+      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${tokenStore.get() ?? ''}` },
+      credentials: API_BASE ? 'include' : 'same-origin',
+      cache: 'no-store',
+      signal,
+    })
+  let res = await open()
+  if (res.status === 401) {
+    await refreshSession()
+    res = await open()
+  }
+  if (!res.ok || !res.body) {
+    let data: Json = null
+    try {
+      data = JSON.parse(await res.text())
+    } catch {
+      data = null
+    }
+    throw checkSessionLost(errorFrom(res, data))
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return
+    buffer += decoder.decode(value, { stream: true })
+    let cut: number
+    while ((cut = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, cut)
+      buffer = buffer.slice(cut + 2)
+      let name = 'message'
+      const data: string[] = []
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) name = line.slice(6).trim()
+        else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+      }
+      if (data.length) onEvent(name, data.join('\n'))
+    }
+  }
+}
