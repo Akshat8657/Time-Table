@@ -25,6 +25,7 @@ from typing import Any, Iterable
 
 from ..validation import DAY_NAMES
 from .grid import Grid, to_hm, to_min
+from .prefs import TeacherPref, periods_text
 from .timing import FULL_DAY, DayRule
 
 GAP_LIMIT = 2  # this many free periods between two lectures of a class / teacher count as a "long gap" (soft rule)
@@ -161,6 +162,7 @@ class Ctx:
     fixed: list[Fixed]
     drafts: dict[uuid.UUID, DraftInfo]
     entries: list[Entry]
+    prefs: dict[uuid.UUID, TeacherPref] = field(default_factory=dict)  # Phase 6: each teacher's not-available slots, daily maximum, stars
 
     def __post_init__(self) -> None:
         self.fixed_by_class: dict[tuple[uuid.UUID, int], list[Fixed]] = defaultdict(list)
@@ -403,6 +405,25 @@ def check_unit(
                     "VISITING_HOURS", True,
                     f"{name} is visiting faculty with a limit of {person.max_weekly_hours} hours a week and already has {hours}.",
                 ))
+        # Phase 6 - the teacher's own preferences. "Not available" slots and the daily maximum are HARD (plan rules 7 and 11).
+        pref = ctx.prefs.get(tid)
+        if pref is not None:
+            covered = range(start, start + use)
+            blocked = [n for n in covered if (day, n) in pref.unavailable]
+            if blocked:
+                res.hard.append(Issue(
+                    "TEACHER_UNAVAILABLE", True,
+                    f"{name} marked {day_name} {periods_text(blocked)} as not available (Teacher Preferences).",
+                ))
+            if pref.max_per_day:
+                held = ctx.teacher_occupied(tid, draft_id, sem_id, day, ignore) | set(covered)
+                if len(held) > pref.max_per_day:
+                    res.hard.append(Issue(
+                        "TEACHER_MAX_DAY", True,
+                        f"{name} asked for at most {pref.max_per_day} lecture(s) a day - this would make {len(held)} on {day_name}.",
+                    ))
+            if pref.avoid_last and start + use - 1 >= len(ctx.grid.periods):
+                res.soft.append(Issue("PREF_AVOID_LAST", False, f"{name} prefers not to teach the last period of the day."))
 
     # --- soft rules ------------------------------------------------------------------------------------------
     mine = ctx.entries_by_draft_day.get((draft_id, day), [])
@@ -427,6 +448,12 @@ def check_unit(
             for a, b in sorted(after_t - before_t):
                 res.soft.append(Issue("GAP_TEACHER", False, f"{ctx.person_name(tid)} would wait {b - a + 1} free periods ({a}-{b}) between lectures on {day_name}."))
         res.notes.extend([f"Occupies {span(start, use)}."])
+        for tid in per_teacher:  # a star from the teacher's preferences is good news worth showing
+            pref = ctx.prefs.get(tid)
+            if pref is not None and any((day, n) in pref.preferred for n in range(start, start + use)):
+                res.notes.append(f"{ctx.person_name(tid)} marked this slot as preferred.")
+            elif pref is not None and pref.prefer_first and start == 1:
+                res.notes.append(f"{ctx.person_name(tid)} likes to teach the first lecture of the day.")
     res.hard = _uniq(res.hard)
     res.soft = _uniq(res.soft)
     return res

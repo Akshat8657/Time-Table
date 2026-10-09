@@ -32,6 +32,7 @@ from .. import audit, db
 from ..errors import ApiError
 from ..scope import as_uuid, load_in_scope, resolve_school
 from ..security.deps import CurrentUser, require_roles
+from ..services import prefs as prefs_svc
 from ..services import schedule as sch
 from ..services import terms as term_svc
 from ..services import timing as timing_svc
@@ -63,7 +64,7 @@ class Loaded:
 async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Loaded:
     """Everything one request needs, in one parallel round of queries."""
     term = term or await term_svc.require_active_term()
-    (grid, college), sems, rule_rows, subs, assigns, people, fixed, drafts, entries = await asyncio.gather(
+    (grid, college), sems, rule_rows, subs, assigns, people, fixed, drafts, entries, prefs = await asyncio.gather(
         timing_svc.school_grid(school_id),
         db.fetch(
             """
@@ -106,6 +107,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
             """,
             school_id, term["id"],
         ),
+        prefs_svc.load_prefs(school_id),
     )
     ctx = sch.Ctx(
         grid=grid,
@@ -127,6 +129,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
         ],
         drafts={d["id"]: sch.DraftInfo(d["id"], d["semester_id"], d["name"], d["is_primary"]) for d in drafts},
         entries=[sch.Entry(e["id"], e["draft_id"], e["semester_id"], e["subject_id"], e["day"], e["start_period"], e["length"], e["parallel_key"], e["is_locked"]) for e in entries],
+        prefs=prefs,
     )
     return Loaded(ctx, term, school_id, list(sems), {d["id"]: dict(d) for d in drafts})
 

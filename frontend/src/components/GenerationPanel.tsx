@@ -90,6 +90,23 @@ function SolutionCard({ sol, best, busy, onUse }: { sol: GenSolution; best: bool
               <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-inset ring-line">
                 <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(r.satisfaction * 100)}%` }} />
               </div>
+              {r.detail && (
+                <div className="mt-1 text-[11px] leading-snug text-muted" data-testid="pref-detail">
+                  <p>{r.detail}</p>
+                  {r.teachers && r.teachers.length > 0 && (
+                    <ul className="mt-0.5 space-y-0.5">
+                      {r.teachers.map((t) => (
+                        <li key={t.teacher_id}>
+                          <span className="font-medium text-ink">{t.name}</span>
+                          {t.stars ? ` · stars ${t.stars[0]}/${t.stars[1]}` : ''}
+                          {t.first ? ` · first lecture ${t.first[0]}/${t.first[1]} days` : ''}
+                          {t.last ? ` · last period avoided ${t.last[0]}/${t.last[1]} days` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>

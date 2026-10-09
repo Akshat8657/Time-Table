@@ -35,6 +35,10 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
   substitutions: lazy(() => import('./pages/SubstitutionsPage')),
   'absent-leave': lazy(() => import('./pages/AbsentLeavePage')),
   offers: lazy(() => import('./pages/OffersPage')),
+  preferences: lazy(() => import('./pages/PreferencesPage')),
+  'my-preferences': lazy(() => import('./pages/MyPreferencesPage')),
+  reports: lazy(() => import('./pages/ReportsPage')),
+  'audit-log': lazy(() => import('./pages/AuditLogPage')),
 }
 
 // the weekly grid editor of one draft (a sub-page of "Generate Timetable")
@@ -85,13 +89,16 @@ const MY_SCREENS: Record<string, Partial<Record<Role, string>>> = {
   notifications: { teacher: '/teacher/notifications', hod: '/hod/notifications', admin: '/admin/notifications' },
   offers: { teacher: '/teacher/offers', hod: '/hod/my-schedule/offers' },
   'absent-leave': { teacher: '/teacher/absent-leave', hod: '/hod/my-schedule/absent-leave' },
+  preferences: { teacher: '/teacher/preferences', hod: '/hod/my-schedule/preferences' },
 }
 
 const CONSOLE: Partial<Record<Role, string>> = { hod: '/hod/substitutions', admin: '/admin/substitutions' }
+const PREF_CONSOLE: Partial<Record<Role, string>> = { hod: '/hod/preferences', admin: '/admin/preferences' }
 
-function ConsoleRedirect() {
+/** A notification link that is the same for everybody ("/substitutions") lands each manager on their own console. */
+function ConsoleRedirect({ map = CONSOLE }: { map?: Partial<Record<Role, string>> }) {
   const { user } = useAuth()
-  return <Navigate to={(user && CONSOLE[user.role]) ?? (user ? HOME[user.role] : '/')} replace />
+  return <Navigate to={(user && map[user.role]) ?? (user ? HOME[user.role] : '/')} replace />
 }
 
 function MyRedirect() {
@@ -135,6 +142,14 @@ export default function App() {
           element={
             <RequireAuth>
               <ConsoleRedirect />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/preference-window"
+          element={
+            <RequireAuth>
+              <ConsoleRedirect map={PREF_CONSOLE} />
             </RequireAuth>
           }
         />

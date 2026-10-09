@@ -27,8 +27,8 @@ from .errors import ApiError
 from .migrations import pending_versions
 from .routers import auth as auth_routes
 from .routers import (
-    absence, adjust, assignments, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, leave,
-    notifications, profile, publish, structure, subjects, subs, terms, timing, users, views,
+    absence, adjust, assignments, audit_log, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, leave,
+    notifications, prefs, profile, publish, reports, structure, subjects, subs, terms, timing, users, views,
 )
 from .security import sessions
 from .security.jwt_verify import TokenVerifier
@@ -111,6 +111,24 @@ async def _substitution_sweep() -> None:
             log.exception("Substitution sweep failed")
 
 
+async def _preference_sweep() -> None:
+    """Every ~60 s: remind the teachers who have not filled yet (once per window) and close a window whose deadline has passed."""
+    from datetime import datetime, timezone
+
+    from .services import prefflow
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            done = await prefflow.sweep(datetime.now(timezone.utc))
+            if done["closed"] or done["reminded"]:
+                log.info("Preference windows: closed %d, reminders sent to %d teacher(s)", done["closed"], done["reminded"])
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Preference window sweep failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_pool()
@@ -129,6 +147,7 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(_housekeeping())
     keepalive = asyncio.create_task(_keepalive())
     sweep = asyncio.create_task(_substitution_sweep())
+    pref_sweep = asyncio.create_task(_preference_sweep())
     log.info("TimeTablePro API is ready")
     try:
         yield
@@ -136,6 +155,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
         keepalive.cancel()
         sweep.cancel()
+        pref_sweep.cancel()
         await auth.aclose()
         await db.close_pool()
 
@@ -285,6 +305,9 @@ app.include_router(absence.router)
 app.include_router(leave.router)
 app.include_router(subs.router)
 app.include_router(adjust.router)
+app.include_router(prefs.router)
+app.include_router(reports.router)
+app.include_router(audit_log.router)
 app.include_router(notifications.router)
 app.include_router(notifications.push_router)
 app.include_router(calendar.router)

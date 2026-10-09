@@ -135,11 +135,15 @@ class Candidate:
     can_teach: bool = False
     taught_before: bool = False
     is_visiting: bool = False
+    marked_unavailable: bool = False   # Phase 6: the teacher marked THIS period "not available" - offered only as a last resort
+    starred: bool = False              # Phase 6: the teacher marked this period as preferred
+    over_daily_max: bool = False       # Phase 6: covering it would pass the teacher's own "max lectures a day"
 
     def as_dict(self) -> dict:
         return {
             "teacher_id": str(self.teacher_id), "name": self.name, "score": round(self.score, 1), "reasons": self.reasons,
             "load_today": self.load_today, "can_teach": self.can_teach, "taught_before": self.taught_before, "is_visiting": self.is_visiting,
+            "marked_unavailable": self.marked_unavailable, "starred": self.starred, "over_daily_max": self.over_daily_max,
         }
 
 
@@ -194,6 +198,27 @@ def score_candidate(
         cand.score -= 6
         reasons.append("Visiting faculty")
 
+    # Phase 6 - the teacher's own preferences. A "not available" mark does not forbid the HOD from asking (it is a one-day
+    # request, not the weekly timetable) but sinks the teacher to the bottom and says so clearly.
+    pref = data.prefs.get(teacher_id)
+    if pref is not None:
+        wd = sub.day_date.isoweekday()
+        covered = range(sub.start, sub.start + sub.length)
+        if any((wd, n) in pref.unavailable for n in covered):
+            cand.marked_unavailable = True
+            cand.score -= 200
+            reasons.append("Last resort: marked this period as not available")
+        elif any((wd, n) in pref.preferred for n in covered):
+            cand.starred = True
+            cand.score += 8
+            reasons.append("Marked this period as preferred")
+        if pref.max_per_day:
+            busy_periods = sum(b - a for a, b in occupied_periods(data, change, teacher_id, sub.day_date))
+            if busy_periods + sub.length > pref.max_per_day:
+                cand.over_daily_max = True
+                cand.score -= 25
+                reasons.append(f"Would pass their own limit of {pref.max_per_day} lectures a day")
+
     # (b) free - always true for a candidate (they were filtered); state it last so the order of reasons reads well
     reasons.append("Free in that slot")
     return cand
@@ -219,7 +244,7 @@ def rank_candidates(
             continue
         cand = score_candidate(data, change, sub, tid, can_teach, taught_class, specialization.get(tid))
         out.append(cand)
-    out.sort(key=lambda c: (-c.score, c.name.lower()))
+    out.sort(key=lambda c: (c.marked_unavailable, -c.score, c.name.lower()))   # 'not available' teachers always come last
     return out[:limit] if limit else out
 
 

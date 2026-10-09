@@ -49,8 +49,12 @@ export function AssignDialog({ sub, onClose, onDone }: { sub: Substitution | nul
     if (!sub) return
     setBusy('offer')
     try {
-      const r = await api<{ offered: SubCandidate[] }>(`/subs/${sub.id}/offer`, { method: 'POST', body: { count: 5 } })
-      toast.success(`Offer sent to ${r.offered.length} teacher(s). First to accept gets it.`)
+      const r = await api<{ offered: SubCandidate[]; last_resort?: boolean }>(`/subs/${sub.id}/offer`, { method: 'POST', body: { count: 5 } })
+      toast.success(
+        r.last_resort
+          ? `Offer sent to ${r.offered.length} teacher(s) who marked this period "not available" - nobody else was free. The offer says so.`
+          : `Offer sent to ${r.offered.length} teacher(s). First to accept gets it.`,
+      )
       onDone()
       onClose()
     } catch (err) {
@@ -94,6 +98,9 @@ export function AssignDialog({ sub, onClose, onDone }: { sub: Substitution | nul
                   {c.can_teach && <Badge tone="success">can teach</Badge>}
                   {c.taught_before && <Badge tone="brand">taught this class</Badge>}
                   {c.is_visiting && <Badge tone="warning">visiting</Badge>}
+                  {c.marked_unavailable && <Badge tone="danger">last resort - marked this period not available</Badge>}
+                  {c.starred && <Badge tone="success">prefers this period</Badge>}
+                  {c.over_daily_max && <Badge tone="warning">over their daily maximum</Badge>}
                 </p>
                 <p className="text-[12px] text-muted">{c.reasons.join(' · ')}</p>
               </div>
@@ -106,7 +113,7 @@ export function AssignDialog({ sub, onClose, onDone }: { sub: Substitution | nul
       ) : null}
       {cands && cands.length > 0 && (
         <p className="mt-3 flex items-center gap-1.5 text-[13px] text-muted">
-          <Sparkles className="size-4 text-brand-text" aria-hidden="true" /> Only teachers who are free at that time are shown, best first.
+          <Sparkles className="size-4 text-brand-text" aria-hidden="true" /> Only teachers who are free at that time are shown, best first. Anyone who marked the period "not available" is at the bottom and is asked only if nobody else is free.
         </p>
       )}
     </Modal>

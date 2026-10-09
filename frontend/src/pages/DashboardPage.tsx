@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowRight, Building2, CalendarCheck, CalendarDays, CalendarOff, Check, CircleDashed, Clock, Cookie, ListChecks, Repeat, Send, ShieldCheck,
-  Timer, TriangleAlert, Users,
+  SlidersHorizontal, Timer, TriangleAlert, Users,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Alert } from '../components/Alert'
@@ -17,7 +17,7 @@ import { firstName, formatDuration, greeting } from '../lib/format'
 import { formatDate, formatRange } from '../lib/helpers'
 import { ROLE_LABEL, ROLE_PREFIX } from '../lib/nav'
 import { runningSemesters } from '../lib/term'
-import type { HoursSummary, MyHoursPayload, Role, Term } from '../lib/types'
+import type { HoursSummary, MyHoursPayload, PrefWindow, Role, Term } from '../lib/types'
 import { useApi } from '../lib/useApi'
 
 interface Upcoming {
@@ -225,6 +225,49 @@ function SubsTodayPanel({ linkTo }: { linkTo: string }) {
         </p>
       ) : (
         <p className="flex items-center gap-2 text-sm text-success"><Check className="size-4" aria-hidden="true" /> {filled > 0 ? `All ${filled} covered.` : 'Nobody is absent today.'}</p>
+      )}
+    </Panel>
+  )
+}
+
+/** My preferences: is the HOD's window open, and have I filled it? (teacher, and the HOD as a teacher) */
+function MyPrefsPanel({ linkTo }: { linkTo: string }) {
+  const { arrivals } = useNotifications()
+  const st = useApi<{ window: PrefWindow | null; submitted: boolean; can_edit: boolean }>(`/prefs/status?_=${arrivals}`)
+  const win = st.data?.window
+  return (
+    <Panel title="My preferences" icon={SlidersHorizontal} action={<Link to={linkTo} className="text-[13px] font-medium text-brand-text hover:underline">Open</Link>}>
+      {st.loading && !st.data ? (
+        <Skeleton className="h-12" />
+      ) : st.data?.can_edit && win ? (
+        <p className="text-sm leading-relaxed text-muted" data-testid="prefs-panel">
+          {st.data.submitted ? <><span className="font-semibold text-success">Saved.</span> You can still change it until </> : <><span className="font-semibold text-warning">Please fill your preferences</span> before </>}
+          <span className="font-medium text-ink">{win.deadline_text}</span>.
+        </p>
+      ) : (
+        <p className="text-sm leading-relaxed text-muted" data-testid="prefs-panel">{win ? 'The preference window is closed - you can look at your choices.' : 'No preference window is open right now. Your HOD will tell you when it opens.'}</p>
+      )}
+    </Panel>
+  )
+}
+
+/** The HOD's side: how many teachers have filled the open window. */
+function PrefsProgressPanel({ linkTo }: { linkTo: string }) {
+  const pr = useApi<{ window: PrefWindow | null; filled: number; total: number }>('/prefs/progress')
+  const d = pr.data
+  return (
+    <Panel title="Teacher preferences" icon={SlidersHorizontal} action={<Link to={linkTo} className="text-[13px] font-medium text-brand-text hover:underline">Open</Link>}>
+      {pr.loading && !d ? (
+        <Skeleton className="h-12" />
+      ) : d?.window?.is_open ? (
+        <p className="text-sm leading-relaxed text-muted" data-testid="prefs-progress">
+          Window open until <span className="font-medium text-ink">{d.window.deadline_text}</span>:{' '}
+          <span className={`font-semibold ${d.filled === d.total ? 'text-success' : 'text-warning'}`}>{d.filled} of {d.total}</span> teachers have filled.
+        </p>
+      ) : (
+        <p className="text-sm leading-relaxed text-muted" data-testid="prefs-progress">
+          {d?.window ? `The last window is closed (${d.filled} of ${d.total} filled).` : 'No window yet.'} Open one when you want preferences from the teachers before making the timetable.
+        </p>
       )}
     </Panel>
   )
@@ -525,12 +568,14 @@ export function HodDashboard() {
         <HoursPanel summary={summary} linkTo="/hod/semester-hours" />
         <PublishPanel block={loading ? undefined : (data?.publish ?? null)} linkTo="/hod/publish" />
       </div>
-      <div className="mt-6">
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <SubsTodayPanel linkTo="/hod/substitutions" />
+        <PrefsProgressPanel linkTo="/hod/preferences" />
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <TodayPanel title="Today - my own lectures" />
         <HoursPanel summary={mySummary} linkTo="/hod/my-schedule/subjects" mine />
+        <MyPrefsPanel linkTo="/hod/my-schedule/preferences" />
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -576,6 +621,7 @@ export function TeacherDashboard() {
         </Panel>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <MyPrefsPanel linkTo="/teacher/preferences" />
         <HoursPanel summary={summary} linkTo="/teacher/subjects" mine />
         <TermPanel term={loading ? undefined : (data?.active_term ?? null)} canChange={false} role="teacher" />
         <UpcomingPanel upcoming={data?.upcoming ?? []} linkTo={null} />

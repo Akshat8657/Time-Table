@@ -77,7 +77,7 @@ async def _load(user: CurrentUser, sub_id: str) -> tuple[Any, ViewData, Any]:
     if row is None or (user.role == "hod" and str(row["school_id"]) != user.school_id):
         raise ApiError(404, "NOT_FOUND", "That substitution was not found.")
     term = await db.fetchrow("select * from public.academic_terms where id = $1", row["term_id"])
-    data = await load_view_data(row["school_id"], term, (row["lecture_date"], row["lecture_date"]))
+    data = await load_view_data(row["school_id"], term, (row["lecture_date"], row["lecture_date"]), with_prefs=True)
     return row, data, term
 
 
@@ -168,7 +168,11 @@ async def offer(sub_id: str, body: OfferIn, user: CurrentUser = Depends(require_
     row, data, term = await _load(user, sub_id)
     if row["status"] in ("filled", "cancelled"):
         raise ApiError(409, "CLOSED", f"This substitution is already {row['status']}.")
-    ranked = await _candidates(data, term, row, limit=body.count)
+    everyone = await _candidates(data, term, row)
+    # Phase 6: a teacher who marked THIS period "not available" is only asked when nobody else is free (and the offer says so)
+    willing = [c for c in everyone if not c.marked_unavailable]
+    ranked = (willing or everyone)[: body.count]
+    last_resort = bool(ranked) and not willing
     if not ranked:
         raise ApiError(409, "NO_CANDIDATE", "No teacher is free for this lecture. Try a smart adjustment (move / swap) or assign manually.")
     minutes = body.timeout_minutes or get_settings().substitution_offer_minutes
@@ -193,11 +197,13 @@ async def offer(sub_id: str, body: OfferIn, user: CurrentUser = Depends(require_
                 row["id"], row["school_id"], c.teacher_id, i + 1, c.score, __import__("json").dumps(c.reasons), deadline,
             )
         await conn.execute("update public.substitutions set status = 'offering', mode = 'auto', offer_deadline = $2 where id = $1", row["id"], deadline)
-        await audit.record(conn, user, "offer", "substitution", row["id"], f"Sent auto offers to {len(ranked)} teacher(s) for {subflow._sub_line(data, _sub_dict(row))}", school_id=row["school_id"])
+        await audit.record(conn, user, "offer", "substitution", row["id"],
+                           f"Sent auto offers to {len(ranked)} teacher(s) for {subflow._sub_line(data, _sub_dict(row))}"
+                           + (" (last resort: everyone free had marked the period not available)" if last_resort else ""), school_id=row["school_id"])
         notices = subflow.offer_notices(data, {**_sub_dict(row), "id": row["id"]}, [c.teacher_id for c in ranked], school_id=row["school_id"], deadline=deadline)
         sent = await notify.create(conn, notices)
     await notify.deliver(sent)
-    return {"status": "offering", "offered": [c.as_dict() for c in ranked], "deadline": deadline.isoformat()}
+    return {"status": "offering", "offered": [c.as_dict() for c in ranked], "deadline": deadline.isoformat(), "last_resort": last_resort}
 
 
 # ---------------------------------------------------------------------------------------------------- teacher accept / decline

@@ -41,9 +41,9 @@ async def _assignments(school_id: uuid.UUID, term_id: uuid.UUID) -> dict[uuid.UU
     return {r["subject_id"]: (r["teacher_id"], r["co_teacher_id"]) for r in rows}
 
 
-async def _data(school_id: uuid.UUID) -> ViewData | None:
+async def _data(school_id: uuid.UUID, *, with_prefs: bool = False) -> ViewData | None:
     term = await term_svc.active_term()
-    return None if term is None else await load_view_data(school_id, term)
+    return None if term is None else await load_view_data(school_id, term, with_prefs=with_prefs)
 
 
 async def _cancelled(school_id: uuid.UUID, term_id: uuid.UUID) -> set:
@@ -131,7 +131,7 @@ class SuggestIn(BaseModel):
 
 async def _plan(user: CurrentUser, subject_id: str):
     subj = await load_in_scope("subjects", subject_id, user, what="subject")
-    data = await _data(subj["school_id"])
+    data = await _data(subj["school_id"], with_prefs=True)   # Phase 6: a teacher's not-available slots rule a compensation slot out
     if data is None:
         raise ApiError(409, "NO_ACTIVE_TERM", "No active term is selected yet.")
     if subj["id"] not in data.subjects or subj["semester_id"] not in data.sems:

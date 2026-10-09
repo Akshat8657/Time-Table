@@ -13,8 +13,9 @@ track-group teachers included) is free across fixed slots AND this solution, the
 the block fits before the class's end time, and visiting faculty stay inside their days and weekly hours.
 If something cannot be placed, the solution says exactly what and why - never a vague failure.
 
-Phase 6 note: teacher personal preferences plug in as another entry of RULES (a new scoring function + weight);
-the solver reads every rule from the registry, so nothing else changes.
+Phase 6: teacher preferences (services/prefs.py).  A teacher's NOT-AVAILABLE slots and daily maximum are HARD rules (they
+shape every unit's domain and State.fits, so they are never used); preferred slots + the first / last lecture choices are the
+soft rule "preferred_slots" in RULES.  The solver reads every rule from the registry, so nothing else changed.
 """
 from __future__ import annotations
 
@@ -43,6 +44,7 @@ RULES: dict[str, tuple[str, int]] = {
     "spread": ("Spread each subject across the week", 60),
     "lab_lunch": ("Keep labs away from the lunch break", 30),
     "visiting_packed": ("Pack visiting faculty's days tightly", 50),
+    "preferred_slots": ("Teachers' preferred slots (stars, first / last lecture)", 60),
 }
 
 
@@ -60,6 +62,12 @@ def clean_weights(raw: dict[str, Any] | None) -> dict[str, int]:
 
 class Cancelled(Exception):
     pass
+
+
+# when the first batch of restarts leaves a solvable-looking problem 1-3 lectures short, solve() tries more (see solve())
+EXTRA_FACTOR = 4          # at most this many times the usual number of attempts
+EXTRA_SECONDS = 45.0      # ... and never beyond this much working time
+EXTRA_MAX_MISSING = 3     # ... and only when the best answer is at most this many lectures short
 
 
 # ---------------------------------------------------------------------------------------------------- the problem
@@ -95,6 +103,17 @@ class Problem:
     lunch_between: set[int]                   # start periods whose 2-block runs around lunch
     inactive: set[uuid.UUID] = field(default_factory=set)          # deactivated teachers (their units cannot be placed)
     locked: list[tuple[int, Cell]] = field(default_factory=list)   # (unit uid, cell) pre-placed by hand
+    # Phase 6 - teacher preferences
+    teacher_unavailable: dict[uuid.UUID, frozenset[Cell]] = field(default_factory=dict)   # HARD: cells a teacher marked "not available"
+    teacher_max_day: dict[uuid.UUID, int] = field(default_factory=dict)                   # HARD: most lecture periods in one day
+    teacher_fixed_day: dict[uuid.UUID, Counter] = field(default_factory=dict)             # periods a teacher already has per day in locked sessions
+    teacher_preferred: dict[uuid.UUID, frozenset[Cell]] = field(default_factory=dict)     # SOFT: starred cells
+    prefer_first: set[uuid.UUID] = field(default_factory=set)                             # SOFT: likes period 1
+    avoid_last: set[uuid.UUID] = field(default_factory=set)                               # SOFT: dislikes the last period
+
+    @property
+    def has_soft_prefs(self) -> bool:
+        return bool(self.teacher_preferred or self.prefer_first or self.avoid_last)
 
     def day_name(self, d: int) -> str:
         return DAY_NAMES.get(d, f"day {d}")
@@ -167,6 +186,19 @@ def build_problem(ctx: Ctx, *, locked_by_class: dict[uuid.UUID, list] | None = N
         periods_per_day=total, days_per_week=min(6, ctx.days_per_week), lunch_between=lunch_between,
         inactive={tid for tid, p in ctx.people.items() if not p.is_active},
     )
+    for tid, pref in ctx.prefs.items():   # Phase 6: the teachers' own choices
+        if pref.unavailable:
+            problem.teacher_unavailable[tid] = pref.unavailable
+        if pref.max_per_day:
+            problem.teacher_max_day[tid] = pref.max_per_day
+        if pref.preferred:
+            problem.teacher_preferred[tid] = pref.preferred
+        if pref.prefer_first:
+            problem.prefer_first.add(tid)
+        if pref.avoid_last:
+            problem.avoid_last.add(tid)
+    for tid, cells in teacher_fixed.items():
+        problem.teacher_fixed_day[tid] = Counter(d for d, _p in cells)
     for cid, entries in (locked_by_class or {}).items():
         for key, rows in _units_by_key(entries).items():
             first = rows[0]
@@ -186,20 +218,24 @@ def _units_by_key(entries) -> dict:
     return out
 
 
-def domain_of(problem: Problem, unit: Unit) -> list[Cell]:
-    """Every start cell this unit could ever use (static rules only: class week, block fit, visiting days)."""
+def domain_of(problem: Problem, unit: Unit, *, ignore_prefs: bool = False) -> list[Cell]:
+    """Every start cell this unit could ever use (static rules only: class week, block fit, visiting days, and the teachers'
+    "not available" slots). `ignore_prefs=True` answers "what would it be without the preferences?" (used to explain a shortfall)."""
     if any(t in problem.inactive for t in unit.teachers):
         return []  # a deactivated teacher can never be scheduled (hard rule)
     days = None
     for t in unit.teachers:
         if t in problem.visiting_days:
             days = problem.visiting_days[t] if days is None else days & problem.visiting_days[t]
+    banned: list[frozenset[Cell]] = [] if ignore_prefs else [problem.teacher_unavailable[t] for t in unit.teachers if t in problem.teacher_unavailable]
     cells = []
     for (d, p) in sorted(problem.allowed[unit.class_id]):
         if days is not None and d not in days:
             continue
         if unit.length == 2 and (d, p + 1) not in problem.allowed[unit.class_id]:
             continue
+        if banned and any((d, p + j) in b for b in banned for j in range(unit.length)):
+            continue  # hard rule 7: a teacher's not-available slot is never used
         cells.append((d, p))
     return cells
 
@@ -229,13 +265,17 @@ def precheck(problem: Problem) -> list[dict[str, str]]:
             per_t[t] += u.needed * u.length
     for (t, cid), demand in sorted(per_tc.items(), key=lambda kv: -kv[1]):
         days = problem.visiting_days.get(t)
-        window = {c for c in problem.allowed[cid] if days is None or c[0] in days} - problem.teacher_fixed.get(t, set())
+        base = {c for c in problem.allowed[cid] if days is None or c[0] in days} - problem.teacher_fixed.get(t, set())
+        window = base - problem.teacher_unavailable.get(t, frozenset())
         if demand > len(window):
             which = f" on their days ({', '.join(DAY_SHORT[d] for d in sorted(days))})" if days else ""
+            pref_note = (
+                f", after leaving out the {len(base) - len(window)} period(s) they marked not available" if len(window) < len(base) and demand <= len(base) else ""
+            )
             findings.append({
                 "kind": "teacher_window", "about": problem.teacher_name.get(t, "A teacher"),
                 "message": f"{problem.teacher_name.get(t, 'A teacher')} must teach {demand} periods for {problem.labels[cid]}, "
-                           f"but that class only has {len(window)} free periods{which}.",
+                           f"but that class only has {len(window)} free periods{which}{pref_note}.",
             })
     # a teacher across the whole week
     for t, demand in sorted(per_t.items(), key=lambda kv: -kv[1]):
@@ -251,6 +291,33 @@ def precheck(problem: Problem) -> list[dict[str, str]]:
                 "kind": "teacher_capacity", "about": problem.teacher_name.get(t, "A teacher"),
                 "message": f"{problem.teacher_name.get(t, 'A teacher')} would need {demand} teaching periods a week, but {why}.",
             })
+            continue
+        # Phase 6: what is left after the teacher's own preferences (not-available slots + a daily maximum), day by day
+        unavailable, md = problem.teacher_unavailable.get(t, frozenset()), problem.teacher_max_day.get(t)
+        if not unavailable and md is None:
+            continue
+        fixed_cells = problem.teacher_fixed.get(t, set())
+        room = 0
+        for d in day_list:
+            fixed_d = {c for c in fixed_cells if c[0] == d}
+            blocked_d = {c for c in unavailable if c[0] == d} - fixed_d
+            free_d = problem.periods_per_day - len(fixed_d) - len(blocked_d)
+            if md is not None:
+                free_d = min(free_d, md - len(fixed_d))
+            room += max(0, free_d)
+        if t in problem.visiting_max:
+            room = min(room, problem.visiting_max[t] - problem.teacher_fixed_hours.get(t, 0))
+        if demand > room:
+            parts = []
+            if unavailable:
+                parts.append(f"{len({c for c in unavailable if c[0] in day_list} - fixed_cells)} period(s) marked not available")
+            if md is not None:
+                parts.append(f"a limit of {md} lecture(s) a day")
+            findings.append({
+                "kind": "teacher_preferences", "about": problem.teacher_name.get(t, "A teacher"),
+                "message": f"{problem.teacher_name.get(t, 'A teacher')} would need {demand} teaching periods a week, but their preferences "
+                           f"({' and '.join(parts)}) leave room for only {room}. Ask the teacher to relax them, or lower their load.",
+            })
     for u in problem.units:
         if not u.needed:
             continue
@@ -262,11 +329,19 @@ def precheck(problem: Problem) -> list[dict[str, str]]:
                            "Assign another teacher first.",
             })
         elif not domain_of(problem, u):
-            findings.append({
-                "kind": "no_cell", "about": u.name,
-                "message": f"'{u.name}' ({problem.labels[u.class_id]}) has no possible period at all - "
-                           "check the class's day-wise schedule and the teacher's visiting days.",
-            })
+            blocked_by = [problem.teacher_name.get(t, "a teacher") for t in u.teachers if t in problem.teacher_unavailable]
+            if blocked_by and domain_of(problem, u, ignore_prefs=True):
+                findings.append({
+                    "kind": "no_cell", "about": u.name,
+                    "message": f"'{u.name}' ({problem.labels[u.class_id]}) has no possible period left: every period is ruled out by "
+                               f"{', '.join(blocked_by)}'s not-available slots. Ask them to free some.",
+                })
+            else:
+                findings.append({
+                    "kind": "no_cell", "about": u.name,
+                    "message": f"'{u.name}' ({problem.labels[u.class_id]}) has no possible period at all - "
+                               "check the class's day-wise schedule and the teacher's visiting days.",
+                })
     return findings
 
 
@@ -281,12 +356,17 @@ class State:
     class_occ: dict[uuid.UUID, set[Cell]] = field(default_factory=lambda: defaultdict(set))
     teacher_occ: dict[uuid.UUID, set[Cell]] = field(default_factory=lambda: defaultdict(set))
     teacher_hours: dict[uuid.UUID, int] = field(default_factory=lambda: defaultdict(int))
+    teacher_day: dict[uuid.UUID, Counter] = field(default_factory=lambda: defaultdict(Counter))   # periods per weekday (generated only)
     unit_days: dict[int, Counter] = field(default_factory=lambda: defaultdict(Counter))
     unplaced: Counter = field(default_factory=Counter)                     # uid -> instances missing
 
     def cells_of(self, unit: Unit, cell: Cell) -> list[Cell]:
         d, p = cell
         return [(d, p + j) for j in range(unit.length)]
+
+    def day_load(self, t: uuid.UUID, d: int) -> int:
+        """Lecture periods a teacher already has on weekday `d`: placed so far + their locked sessions."""
+        return self.teacher_day[t][d] + self.problem.teacher_fixed_day.get(t, {}).get(d, 0)
 
     def fits(self, unit: Unit, cell: Cell) -> bool:
         span = self.cells_of(unit, cell)
@@ -301,6 +381,12 @@ class State:
             cap = self.problem.visiting_max.get(t)
             if cap is not None and self.teacher_hours[t] + self.problem.teacher_fixed_hours.get(t, 0) + unit.length > cap:
                 return False
+            per_day = self.problem.teacher_max_day.get(t)   # hard rule 11: the teacher's own daily maximum
+            if per_day is not None and self.day_load(t, cell[0]) + unit.length > per_day:
+                return False
+            banned = self.problem.teacher_unavailable.get(t)  # hard rule 7 (normally already out of the domain; also guards pinned cells)
+            if banned and any(c in banned for c in span):
+                return False
         return True
 
     def put(self, key: tuple[int, int], unit: Unit, cell: Cell) -> None:
@@ -310,6 +396,7 @@ class State:
         for t in unit.teachers:
             self.teacher_occ[t].update(span)
             self.teacher_hours[t] += unit.length
+            self.teacher_day[t][cell[0]] += unit.length
         self.unit_days[unit.uid][cell[0]] += 1
 
     def take(self, key: tuple[int, int], unit: Unit) -> Cell:
@@ -319,6 +406,7 @@ class State:
         for t in unit.teachers:
             self.teacher_occ[t].difference_update(span)
             self.teacher_hours[t] -= unit.length
+            self.teacher_day[t][cell[0]] -= unit.length
         self.unit_days[unit.uid][cell[0]] -= 1
         return cell
 
@@ -343,6 +431,17 @@ class State:
                 pen += w["visiting_packed"] * 0.8  # opening one more day for a visiting teacher
         if unit.length == 2 and p in self.problem.lunch_between:
             pen += w["lab_lunch"] * 1.0
+        if self.problem.has_soft_prefs:   # Phase 6: a star is a reward, the last period an extra cost for those who avoid it
+            pw = w["preferred_slots"]
+            last = self.problem.periods_per_day
+            for t in unit.teachers:
+                stars = self.problem.teacher_preferred.get(t)
+                if stars:
+                    pen -= pw * 0.5 * sum(1 for c in span if c in stars)
+                if t in self.problem.prefer_first and p == 1:
+                    pen -= pw * 0.5
+                if t in self.problem.avoid_last and any(q == last for _dd, q in span):
+                    pen += pw * 0.6
         return pen
 
 
@@ -408,24 +507,33 @@ def _eject_and_place(st: State, unit: Unit, key: tuple[int, int], domains: dict[
                     ok = False
                     break
                 blockers.add(other_key)
-        if not ok or len(blockers) != 1:
+        if not ok or not 1 <= len(blockers) <= 2:   # a 2-period block can be blocked by two different lectures (one per period)
             continue
         for t in unit.teachers:  # a fixed slot can never be ejected
             if p.teacher_fixed.get(t) and span & p.teacher_fixed[t]:
                 ok = False
         if not ok:
             continue
-        (b_key,) = blockers
-        b_unit = p.units[b_key[0]]
-        old = st.take(b_key, b_unit)
+        taken = []
+        for b_key in sorted(blockers):
+            b_unit = p.units[b_key[0]]
+            taken.append((b_key, b_unit, st.take(b_key, b_unit)))
         if st.fits(unit, cell):
-            st.put(key, unit, cell)  # place ours FIRST, so the blocker's new home is checked against the full picture
-            new_homes = [c for c in domains[b_unit.uid] if c != old and st.fits(b_unit, c)]
-            if new_homes:
-                st.put(b_key, b_unit, min(new_homes, key=lambda c: st.penalty(b_unit, c)))
+            st.put(key, unit, cell)  # place ours FIRST, so each blocker's new home is checked against the full picture
+            back: list[tuple[tuple[int, int], Unit]] = []
+            for b_key, b_unit, old in taken:
+                homes = [c for c in domains[b_unit.uid] if c != old and st.fits(b_unit, c)]
+                if not homes:
+                    break
+                st.put(b_key, b_unit, min(homes, key=lambda c: st.penalty(b_unit, c)))
+                back.append((b_key, b_unit))
+            else:
                 return True
+            for b_key, b_unit in back:   # one blocker could not be re-homed: undo everything
+                st.take(b_key, b_unit)
             st.take(key, unit)
-        st.put(b_key, b_unit, old)
+        for b_key, b_unit, old in taken:
+            st.put(b_key, b_unit, old)
     return False
 
 
@@ -476,7 +584,60 @@ def score_solution(problem: Problem, st: State, weights: dict[str, int]) -> tupl
          "satisfaction": round(sats[name], 3), "points_lost": round(weights[name] * (1 - sats[name]) / total_w * 100, 1)}
         for name in RULES
     ]
+    for row in breakdown:   # Phase 6: show WHICH wishes were honoured (the HOD can see whose preferences were met)
+        if row["rule"] == "preferred_slots":
+            stats = pref_stats(problem, st)
+            row["detail"] = stats["text"]
+            row["teachers"] = stats["teachers"]
     return round(score, 2), breakdown
+
+
+def pref_stats(problem: Problem, st: State) -> dict[str, Any]:
+    """How well the teachers' SOFT choices were met (the hard ones - not-available slots, daily maximum - can never be broken).
+    Three pooled measures, each `[honoured, possible]`:
+      stars  periods taught in a starred slot, out of min(periods taught, starred slots)
+      first  days with a period-1 lecture, out of the days a first-lecture lover teaches
+      last   days WITHOUT a last-period lecture, out of the days a last-period avoider teaches
+    The rule's satisfaction is the average of the measures that apply (1.0 when nobody set any soft choice)."""
+    last = problem.periods_per_day
+    stars, first, lasts = [0, 0], [0, 0], [0, 0]
+    teachers: list[dict[str, Any]] = []
+    for t in sorted(set(problem.teacher_preferred) | problem.prefer_first | problem.avoid_last, key=lambda x: problem.teacher_name.get(x, "")):
+        occ = st.teacher_occ[t]
+        everything = occ | problem.teacher_fixed.get(t, set())
+        days = {d for d, _p in everything}
+        row: dict[str, Any] = {"teacher_id": str(t), "name": problem.teacher_name.get(t, "A teacher"), "stars": None, "first": None, "last": None}
+        wanted = problem.teacher_preferred.get(t)
+        if wanted and occ:
+            a, b = len(occ & wanted), min(len(occ), len(wanted))
+            stars[0] += a
+            stars[1] += b
+            row["stars"] = [a, b]
+        if t in problem.prefer_first and days:
+            a = sum(1 for d in days if (d, 1) in everything)
+            first[0] += a
+            first[1] += len(days)
+            row["first"] = [a, len(days)]
+        if t in problem.avoid_last and days:
+            a = sum(1 for d in days if (d, last) not in everything)
+            lasts[0] += a
+            lasts[1] += len(days)
+            row["last"] = [a, len(days)]
+        if row["stars"] or row["first"] or row["last"]:
+            teachers.append(row)
+    ratios = [a / b for a, b in (stars, first, lasts) if b]
+    parts = []
+    if stars[1]:
+        parts.append(f"starred periods honoured: {stars[0]} of {stars[1]}")
+    if first[1]:
+        parts.append(f"first lecture given: {first[0]} of {first[1]} days")
+    if lasts[1]:
+        parts.append(f"last period avoided: {lasts[0]} of {lasts[1]} days")
+    return {
+        "satisfaction": sum(ratios) / len(ratios) if ratios else 1.0,
+        "text": ("; ".join(parts).capitalize() + ".") if parts else "No teacher has set soft preferences.",
+        "stars": stars, "first": first, "last": lasts, "teachers": teachers,
+    }
 
 
 def _satisfactions(problem: Problem, st: State) -> dict[str, float]:
@@ -542,6 +703,7 @@ def _satisfactions(problem: Problem, st: State) -> dict[str, float]:
     return {
         "twice_a_day": twice, "class_gaps": class_gaps, "teacher_gaps": teacher_gaps,
         "balance_load": balance, "spread": spread, "lab_lunch": lab_lunch, "visiting_packed": visiting_packed,
+        "preferred_slots": pref_stats(problem, st)["satisfaction"] if problem.has_soft_prefs else 1.0,
     }
 
 
@@ -569,6 +731,11 @@ def unplaced_report(problem: Problem, st: State) -> list[dict[str, Any]]:
                     reasons[f"{problem.teacher_name.get(t, 'a teacher')} (weekly hours limit)"] += 1
                     blamed = True
                     break
+                per_day = problem.teacher_max_day.get(t)
+                if per_day is not None and st.day_load(t, cell[0]) + unit.length > per_day:
+                    reasons[f"{problem.teacher_name.get(t, 'a teacher')} (limit of {per_day} lectures a day)"] += 1
+                    blamed = True
+                    break
             if not blamed:
                 reasons["free?!"] += 1
         label = problem.labels[unit.class_id]
@@ -576,11 +743,21 @@ def unplaced_report(problem: Problem, st: State) -> list[dict[str, Any]]:
         if dead:
             why = f"{', '.join(dead)} is deactivated"
         elif not domain_of(problem, unit):
-            why = "it has no possible period at all (day-wise schedule / visiting days)"
+            blocked_by = [problem.teacher_name.get(t, "a teacher") for t in unit.teachers if t in problem.teacher_unavailable]
+            if blocked_by and domain_of(problem, unit, ignore_prefs=True):
+                why = f"every possible period is ruled out by the not-available slots of {', '.join(blocked_by)}"
+            else:
+                why = "it has no possible period at all (day-wise schedule / visiting days)"
         else:
-            top = ", ".join(f"{name} is busy in {n} of them" if name != "class" else f"the class is busy in {n} of them"
-                            for name, n in reasons.most_common(3))
-            why = f"of its {len(domain_of(problem, unit))} possible periods: {top}"
+            top = ", ".join(
+                f"the class is busy in {n} of them" if name == "class"
+                else (f"{name} blocks {n} of them" if "(" in name else f"{name} is busy in {n} of them")
+                for name, n in reasons.most_common(3)
+            )
+            ruled_out = len(domain_of(problem, unit, ignore_prefs=True)) - len(domain_of(problem, unit))
+            names = [problem.teacher_name.get(t, "a teacher") for t in unit.teachers if t in problem.teacher_unavailable]
+            pref_note = f"; another {ruled_out} were ruled out by the not-available slots of {', '.join(names)}" if ruled_out > 0 and names else ""
+            why = f"of its {len(domain_of(problem, unit))} possible periods: {top}{pref_note}"
         out.append({
             "class_label": label, "unit": unit.name, "missing": missing, "needed": unit.needed,
             "message": f"'{unit.name}' ({label}): {missing} of {unit.needed} weekly {'blocks' if unit.is_lab else 'lectures'} could not be placed - {why}.",
@@ -618,17 +795,27 @@ def solve(
     t0 = monotonic()
     required = sum(u.needed for u in problem.units)
     pool: list[Solution] = []
-    for a in range(attempts):
+    a = 0
+    total = attempts
+    while a < total:
         if is_cancelled():
             raise Cancelled()
         if monotonic() - t0 > time_limit and pool:
             break
         if progress:
-            progress(int(5 + 85 * a / attempts), f"Trying combination {a + 1} of {attempts}...")
+            progress(int(5 + 85 * a / total), f"Trying combination {a + 1} of {total}...")
         st = _attempt(problem, w, random.Random(seed * 7919 + a), t0 + time_limit, is_cancelled)
         score, breakdown = score_solution(problem, st, clean_weights(weights))
         placed = required - sum(max(0, n) for n in st.unplaced.values())
         pool.append(Solution(st, score, breakdown, placed, required, unplaced_report(problem, st)))
+        a += 1
+        # Tight setups (a heavily loaded teacher with a daily maximum and a few "not available" slots) can leave ONE block unplaced in
+        # every restart of the first batch. When the best answer is only 1-3 lectures short, the problem is probably solvable, so keep
+        # trying more restarts (the attempts are quick) - but never for a hopeless problem and never beyond 4x the usual attempts.
+        if a == total and total < attempts * EXTRA_FACTOR and monotonic() - t0 < min(time_limit, EXTRA_SECONDS):
+            short = required - max(s.placed for s in pool)
+            if 0 < short <= EXTRA_MAX_MISSING:
+                total = min(attempts * EXTRA_FACTOR, total + attempts)
     pool.sort(key=lambda s: (-s.placed, -s.score))
     chosen: list[Solution] = []
     for sol in pool:

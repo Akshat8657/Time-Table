@@ -81,7 +81,7 @@ async def scenarios(api: Api) -> None:
 
     log("\n== weights ==")
     w = await api.get(f"/api/generation/weights{q}")
-    check({r["name"] for r in w["rules"]} == set(gen.RULES), "all 7 soft rules with labels + defaults are offered")
+    check({r["name"] for r in w["rules"]} == set(gen.RULES), "all the soft rules (8 since Phase 6) with labels + defaults are offered")
     await api.put("/api/generation/weights", {"school_id": sid, "weights": {"lab_lunch": 90}})
     check((await api.get(f"/api/generation/weights{q}"))["weights"]["lab_lunch"] == 90, "a weight can be saved per school")
     await api.put("/api/generation/weights", {"school_id": sid, "weights": gen.default_weights()})

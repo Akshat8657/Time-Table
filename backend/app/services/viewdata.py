@@ -14,6 +14,7 @@ import asyncpg
 
 from .. import db
 from . import calindex
+from . import prefs as prefs_svc
 from . import publishing as pub
 from . import terms as term_svc
 from . import timing as timing_svc
@@ -52,6 +53,7 @@ class PersonInfo:
     is_visiting: bool
     visiting_days: frozenset[int]
     max_weekly_hours: int | None
+    specialization: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,7 @@ class ViewData:
     calendar: calindex.CalendarIndex
     term_dates: dict[uuid.UUID, tuple[date, date]]
     extras: list[ExtraRow] = field(default_factory=list)
+    prefs: dict[uuid.UUID, prefs_svc.TeacherPref] = field(default_factory=dict)   # only when loaded with_prefs=True
 
     def person_name(self, pid: uuid.UUID | None) -> str | None:
         if pid is None:
@@ -124,9 +127,16 @@ def _to_min(t: Any) -> int | None:
     return None if t is None else to_min(t)
 
 
-async def load_view_data(school_id: uuid.UUID, term: asyncpg.Record, window: tuple[date, date] | None = None) -> ViewData:
-    """`window` = the dates the calendar and the extra lectures are needed for (None = the whole term)."""
-    (grid, college), sems, rule_rows, pubs, rows, subs, people, tdates, school = await asyncio.gather(
+async def _no_prefs() -> dict[uuid.UUID, prefs_svc.TeacherPref]:
+    return {}
+
+
+async def load_view_data(
+    school_id: uuid.UUID, term: asyncpg.Record, window: tuple[date, date] | None = None, *, with_prefs: bool = False,
+) -> ViewData:
+    """`window` = the dates the calendar and the extra lectures are needed for (None = the whole term).
+    `with_prefs` also loads the teachers' preferences (extra-lecture planning, substitution ranking, reports); plain views skip them."""
+    (grid, college), sems, rule_rows, pubs, rows, subs, people, tdates, school, prefs = await asyncio.gather(
         timing_svc.school_grid(school_id),
         db.fetch(
             """
@@ -156,12 +166,13 @@ async def load_view_data(school_id: uuid.UUID, term: asyncpg.Record, window: tup
             school_id,
         ),
         db.fetch(
-            "select id, full_name, role, is_active, is_visiting, visiting_days, max_weekly_hours from public.profiles "
+            "select id, full_name, role, is_active, is_visiting, visiting_days, max_weekly_hours, specialization from public.profiles "
             "where school_id = $1 and role in ('teacher', 'hod')",
             school_id,
         ),
         db.fetch("select semester_id, start_date, end_date from public.term_semesters where school_id = $1 and term_id = $2", school_id, term["id"]),
         db.fetchrow("select name from public.schools where id = $1", school_id),
+        prefs_svc.load_prefs(school_id) if with_prefs else _no_prefs(),
     )
     term_dates = {r["semester_id"]: (r["start_date"], r["end_date"]) for r in tdates}
     if window is None and term_dates:
@@ -216,8 +227,8 @@ async def load_view_data(school_id: uuid.UUID, term: asyncpg.Record, window: tup
             for s in subs
         },
         people={
-            p["id"]: PersonInfo(p["id"], p["full_name"], p["role"], p["is_active"], p["is_visiting"], frozenset(p["visiting_days"] or []), p["max_weekly_hours"])
+            p["id"]: PersonInfo(p["id"], p["full_name"], p["role"], p["is_active"], p["is_visiting"], frozenset(p["visiting_days"] or []), p["max_weekly_hours"], p["specialization"])
             for p in people
         },
-        calendar=calindex.CalendarIndex(entries), term_dates=term_dates, extras=extras,
+        calendar=calindex.CalendarIndex(entries), term_dates=term_dates, extras=extras, prefs=prefs,
     )

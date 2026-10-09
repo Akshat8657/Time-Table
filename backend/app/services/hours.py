@@ -22,6 +22,7 @@ from typing import Any, Iterable
 from ..validation import DAY_NAMES, DAY_SHORT
 from . import calindex
 from . import publishing as pub
+from .prefs import periods_text
 from .schedule import GAP_LIMIT, gap_runs
 from .viewdata import ExtraRow, SubjInfo, ViewData
 
@@ -301,6 +302,15 @@ class Planner:
                 monday = calindex.week_start(d)
                 if self.week_hours.get(t, 0) + self.extra_week_hours.get((t, monday), 0) + length > p.max_weekly_hours:
                     out.append(("visiting_hours", f"{name} would pass the weekly limit of {p.max_weekly_hours} hours that week."))
+            pref = data.prefs.get(t)   # Phase 6: the teacher's own not-available slots + daily maximum are hard rules here too
+            if pref is not None:
+                bad = [n for n in range(start, end) if (wd, n) in pref.unavailable]
+                if bad:
+                    out.append(("pref_unavailable", f"{name} marked {DAY_NAMES[wd]} {periods_text(bad)} as not available."))
+                if pref.max_per_day:
+                    held = {q for a, b in self.teacher_busy[(t, wd)] for q in range(a, b)} | {q for a, b in self.teacher_extra[(t, d)] for q in range(a, b)}
+                    if len(held | set(range(start, end))) > pref.max_per_day:
+                        out.append(("pref_max_day", f"{name} asked for at most {pref.max_per_day} lecture(s) a day."))
         return list(dict.fromkeys(out))
 
     def problems(self, d: date, start: int) -> list[str]:
@@ -408,6 +418,8 @@ REJECT_WORDS = {
     "day_off": "the class has that day off",
     "after_end": "the class has already ended for the day",
     "inactive": "the teacher is deactivated",
+    "pref_unavailable": "the teacher marked that period as not available",
+    "pref_max_day": "the teacher's own daily maximum would be passed",
 }
 
 

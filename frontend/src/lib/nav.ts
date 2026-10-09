@@ -4,7 +4,7 @@
  */
 import {
   Bell, BookOpen, Bot, Building2, CalendarCheck, CalendarClock, CalendarDays, CalendarOff, CalendarRange, ChartColumn,
-  CircleUser, Clock, House, Inbox, LayoutDashboard, Link2, Network, Pin, Repeat, ScrollText, Send, ShieldAlert, SlidersHorizontal, Table2,
+  CircleUser, ClipboardList, Clock, House, Inbox, LayoutDashboard, Link2, Network, Pin, Repeat, ScrollText, Send, ShieldAlert, SlidersHorizontal, Table2,
   Timer, Users, WandSparkles, type LucideIcon,
 } from 'lucide-react'
 import type { Role } from './types'
@@ -13,7 +13,7 @@ export type ScreenKey =
   | 'active-term' | 'college-setup' | 'structure' | 'timing' | 'subjects' | 'teachers' | 'assignment'
   | 'fixed-slots' | 'holidays' | 'profile' | 'drafts' | 'conflicts'
   | 'publish' | 'timetables' | 'hours' | 'my-timetable' | 'my-subjects' | 'notifications'
-  | 'substitutions' | 'absent-leave' | 'offers'
+  | 'substitutions' | 'absent-leave' | 'offers' | 'preferences' | 'my-preferences' | 'reports' | 'audit-log'
 
 export interface NavItem {
   label: string
@@ -64,8 +64,9 @@ const ADMIN: NavItem[] = [
   { label: 'Timetables', path: '/admin/timetables', icon: Table2, phase: null, live: true, screen: 'timetables', about: 'The published timetable by class, by teacher and for the whole school - with filters and PDF / Excel downloads.' },
   { label: 'Semester Hours', path: '/admin/semester-hours', icon: Timer, phase: null, live: true, screen: 'hours', about: 'Hours taught versus hours required, short subjects in red, and clash-free extra lectures for holidays.' },
   { label: 'Substitutions', path: '/admin/substitutions', icon: Repeat, phase: null, live: true, screen: 'substitutions', about: 'Mark absences, assign or auto-offer substitutes, approve leave, one-day changes and the daily sheet.' },
-  { label: 'Reports', path: '/admin/reports', icon: ChartColumn, phase: 'Phase 6', about: 'Workload, free-teacher finder, hours progress and more.' },
-  { label: 'Audit Log', path: '/admin/audit-log', icon: ScrollText, phase: 'Phase 6', about: 'A record of every important change - who, what and when.' },
+  { label: 'Teacher Preferences', path: '/admin/preferences', icon: ClipboardList, phase: null, live: true, screen: 'preferences', about: "Open a window for teachers to say when they can and cannot teach, and see who has filled." },
+  { label: 'Reports', path: '/admin/reports', icon: ChartColumn, phase: null, live: true, screen: 'reports', about: 'Workload against the UGC / AICTE norm, busiest and free teachers, free-teacher finder, hours progress, cancelled sessions, substitutions and school comparison.' },
+  { label: 'Audit Log', path: '/admin/audit-log', icon: ScrollText, phase: null, live: true, screen: 'audit-log', about: 'A record of every important change - who, what and when. Filter by person, action and date.' },
   { label: 'Notifications', path: '/admin/notifications', icon: Bell, phase: null, live: true, screen: 'notifications', about: 'Everything sent to you.' },
   { label: 'AI Assistant', path: '/admin/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
 ]
@@ -73,7 +74,7 @@ const ADMIN: NavItem[] = [
 const HOD_MY_SCHEDULE: NavItem[] = [
   { label: 'My Timetable', path: '/hod/my-schedule/timetable', icon: CalendarRange, phase: null, live: true, screen: 'my-timetable', about: 'Your own weekly timetable, as a teacher.' },
   { label: 'My Profile', path: '/hod/my-schedule/profile', icon: CircleUser, phase: null, live: true, screen: 'profile', about: 'Your details, photo, specialization and the subjects you can teach.' },
-  { label: 'My Preferences', path: '/hod/my-schedule/preferences', icon: SlidersHorizontal, phase: 'Phase 6', about: 'Mark your slots as available, preferred or not available.' },
+  { label: 'My Preferences', path: '/hod/my-schedule/preferences', icon: SlidersHorizontal, phase: null, live: true, screen: 'my-preferences', about: 'Mark your slots as available, preferred or not available.' },
   { label: 'Absent & Leave', path: '/hod/my-schedule/absent-leave', icon: CalendarOff, phase: null, live: true, screen: 'absent-leave', about: 'Mark yourself absent and send leave requests.' },
   { label: 'Offers', path: '/hod/my-schedule/offers', icon: Inbox, phase: null, live: true, screen: 'offers', about: 'Substitution offers waiting for your answer, and lectures you are covering.' },
   { label: 'My Subjects', path: '/hod/my-schedule/subjects', icon: BookOpen, phase: null, live: true, screen: 'my-subjects', about: 'Hours you have taught versus hours required, per subject.' },
@@ -95,7 +96,8 @@ const HOD: NavItem[] = [
   { label: 'Timetables', path: '/hod/timetables', icon: Table2, phase: null, live: true, screen: 'timetables', about: 'The published timetable by class, by teacher and for the whole school - with filters and PDF / Excel downloads.' },
   { label: 'Semester Hours', path: '/hod/semester-hours', icon: Timer, phase: null, live: true, screen: 'hours', about: 'Hours taught versus hours required, short subjects in red, and clash-free extra lectures for holidays.' },
   { label: 'Substitutions', path: '/hod/substitutions', icon: Repeat, phase: null, live: true, screen: 'substitutions', about: 'Mark absences, assign or auto-offer substitutes, approve leave, one-day changes and the daily sheet.' },
-  { label: 'Reports', path: '/hod/reports', icon: ChartColumn, phase: 'Phase 6', about: 'Workload, free-teacher finder, hours progress and more.' },
+  { label: 'Teacher Preferences', path: '/hod/preferences', icon: ClipboardList, phase: null, live: true, screen: 'preferences', about: "Open a window for your teachers to say when they can and cannot teach, and see who has filled." },
+  { label: 'Reports', path: '/hod/reports', icon: ChartColumn, phase: null, live: true, screen: 'reports', about: "Workload against the UGC / AICTE norm, busiest and free teachers, free-teacher finder, hours progress, cancelled sessions and substitutions of your school." },
   { label: 'Notifications', path: '/hod/notifications', icon: Bell, phase: null, live: true, screen: 'notifications', about: 'Everything sent to you.' },
   { label: 'AI Assistant', path: '/hod/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
   {
@@ -112,7 +114,7 @@ const TEACHER: NavItem[] = [
   { label: 'Home', path: '/teacher/home', icon: House, phase: null, live: true, about: "Today's schedule at a glance." },
   { label: 'My Timetable', path: '/teacher/timetable', icon: CalendarRange, phase: null, live: true, screen: 'my-timetable', about: 'Your weekly timetable, including combined sessions and co-taught lectures.' },
   { label: 'My Profile', path: '/teacher/profile', icon: CircleUser, phase: null, live: true, screen: 'profile', about: 'Your details, photo, specialization and the subjects you can teach.' },
-  { label: 'My Preferences', path: '/teacher/preferences', icon: SlidersHorizontal, phase: 'Phase 6', about: 'Mark your slots as available, preferred or not available.' },
+  { label: 'My Preferences', path: '/teacher/preferences', icon: SlidersHorizontal, phase: null, live: true, screen: 'my-preferences', about: 'Mark your slots as available, preferred or not available.' },
   { label: 'Absent & Leave', path: '/teacher/absent-leave', icon: CalendarOff, phase: null, live: true, screen: 'absent-leave', about: 'Mark yourself absent and send leave requests.' },
   { label: 'Offers', path: '/teacher/offers', icon: Inbox, phase: null, live: true, screen: 'offers', about: 'Substitution offers waiting for your answer, and lectures you are covering.' },
   { label: 'My Subjects', path: '/teacher/subjects', icon: BookOpen, phase: null, live: true, screen: 'my-subjects', about: 'Hours you have taught versus hours required, per subject.' },

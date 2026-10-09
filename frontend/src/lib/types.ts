@@ -462,6 +462,9 @@ export interface GenRuleScore {
   weight: number
   satisfaction: number
   points_lost: number
+  /** Phase 6: for the teachers' preferred-slots rule - what was honoured, and for whom */
+  detail?: string
+  teachers?: { teacher_id: string; name: string; stars: [number, number] | null; first: [number, number] | null; last: [number, number] | null }[]
 }
 
 export interface GenClassResult {
@@ -905,6 +908,10 @@ export interface SubCandidate {
   can_teach: boolean
   taught_before: boolean
   is_visiting: boolean
+  /** Phase 6: the teacher marked THIS period "not available" - listed last, offered only as a last resort */
+  marked_unavailable?: boolean
+  starred?: boolean
+  over_daily_max?: boolean
 }
 
 export interface SubOffer extends Substitution {
@@ -941,4 +948,342 @@ export interface MonthlySummary {
   school: { id: string; name: string }
   teachers: { teacher_id: string; name: string; absences: number; covered: number; needed_cover: number }[]
   totals: { absences: number; covered: number; filled: number; unfilled: number }
+}
+
+// ---------------------------------------------------------------------- Phase 6: preferences, reports, audit
+export type PrefKind = 'preferred' | 'unavailable'
+
+export interface PrefWindow {
+  id: string
+  status: 'open' | 'closed'
+  /** open AND the deadline has not passed */
+  is_open: boolean
+  opened_at: string
+  deadline: string
+  deadline_text: string
+  closed_at: string | null
+  closed_reason: 'manual' | 'deadline' | null
+  reopened_count: number
+  note: string | null
+  seconds_left: number
+}
+
+export interface PrefPayload {
+  teacher: { id: string; name: string; is_visiting: boolean; visiting_days: number[]; specialization: string | null }
+  grid: GridInfo
+  days: number
+  periods: number
+  locked_days: number[]
+  /** "day:period" -> kind; a slot that is not here is plain Available */
+  slots: Record<string, PrefKind>
+  prefer_first: boolean
+  avoid_last: boolean
+  max_per_day: number | null
+  limit: number
+  unavailable_count: number
+  preferred_count: number
+  summary: string
+  /** locked sessions (PE / SOL / combined) that fall on a 'not available' slot or pass the daily maximum - they stay as they are */
+  fixed_notes: string[]
+  window: PrefWindow | null
+  can_edit: boolean
+  reason: string | null
+  submitted: boolean
+}
+
+export interface PrefTeacherRow {
+  id: string
+  name: string
+  email: string
+  is_visiting: boolean
+  filled: boolean
+  submitted_at: string | null
+  has_prefs: boolean
+  unavailable: number
+  preferred: number
+  max_per_day: number | null
+  prefer_first: boolean
+  avoid_last: boolean
+  summary: string
+  over_limit: boolean
+}
+
+export interface PrefOverview {
+  school: { id: string; name: string }
+  settings: { max_unavailable: number; reminder_hours: number }
+  window: PrefWindow | null
+  filled: number
+  total: number
+  teachers: PrefTeacherRow[]
+  history: { id: string; status: string; opened_at: string; deadline: string; closed_reason: string | null; filled: number }[]
+}
+
+export type ReportName = 'workload' | 'rankings' | 'free-teachers' | 'hours' | 'cancelled' | 'substitutions' | 'compare'
+
+export interface ReportScope {
+  schools: { id: string; name: string }[]
+  all: boolean
+}
+
+export interface ReportBase {
+  report: string
+  title: string
+  term: Term | null
+  scope: ReportScope
+  scope_text: string
+  meta: string
+  empty_text?: string
+}
+
+export interface WorkloadRow {
+  teacher_id: string
+  teacher: string
+  school: string
+  school_id: string
+  role: string
+  is_visiting: boolean
+  specialization: string | null
+  periods: number
+  hours: number
+  lectures: number
+  teaching_days: number
+  max_day: number
+  capacity: number
+  free_periods: number
+  norm_hours: number
+  load_pct: number
+  status: 'under' | 'within' | 'over' | 'visiting' | 'none'
+  visiting_limit: number | null
+  subs_covered: number
+}
+
+export interface WorkloadSummary {
+  teachers: number
+  regular: number
+  visiting: number
+  total_hours: number
+  avg_hours: number
+  avg_pct: number
+  under: number
+  within: number
+  over: number
+  published: boolean
+  norm_hours: number | null
+  min_hours: number | null
+  norm_label: string
+  norm_source: string
+}
+
+export interface WorkloadReport extends ReportBase {
+  rows: WorkloadRow[]
+  summary: WorkloadSummary
+  norm: { norm_hours: number; min_hours: number; label: string; source: string } | null
+  per_school: { school_id: string; school: string; teachers: number; avg_hours: number; avg_pct: number; under: number; within: number; over: number; norm_hours: number }[]
+  note?: string
+}
+
+export interface RankRow {
+  rank: number
+  teacher_id: string
+  teacher: string
+  school: string
+  role: string
+  hours?: number
+  lectures?: number
+  teaching_days?: number
+  max_day?: number
+  load_pct?: number
+  status?: string
+  free_periods?: number
+  capacity?: number
+  subs_covered?: number
+}
+
+export interface RankingsReport extends ReportBase {
+  lists: { busiest: RankRow[]; most_free: RankRow[]; substitutes: RankRow[] }
+  summary: WorkloadSummary
+}
+
+export interface FreeTeacher {
+  teacher_id: string
+  name: string
+  school: string
+  school_id: string
+  role: string
+  is_visiting: boolean
+  specialization: string | null
+  free_periods: { period: number; time: string | null }[]
+  free_mask: boolean[]
+  free_count: number
+  load_today: number
+  marked_unavailable: boolean
+  free_text: string
+}
+
+export interface FreeReport extends ReportBase {
+  date: string
+  weekday: number
+  now: boolean
+  period: number | null
+  rows: FreeTeacher[]
+  schools: { id: string; name: string; periods: { period: number; time: string | null }[]; time: string | null; period: number | null; banners: { title: string; kind: string }[] }[]
+  notes: string[]
+  summary: { free: number; date: string }
+}
+
+export interface HoursReportRow {
+  school: string
+  school_id: string
+  class: string
+  semester_id: string
+  subject: string
+  code: string
+  teachers: string
+  required: number
+  delivered: number
+  deliverable: number
+  shortfall: number
+  lost: number
+  extra: number
+  percent_delivered: number
+  percent_planned: number
+  status: string
+  state: string
+}
+
+export interface HoursReportClass {
+  school: string
+  class: string
+  required: number
+  delivered: number
+  deliverable: number
+  /** hours counted toward the requirement (each subject capped at what it needs) */
+  taught: number
+  planned: number
+  shortfall: number
+  percent_delivered: number
+  percent_planned: number
+  short_subjects: number
+  subjects: number
+}
+
+export interface HoursReport extends ReportBase {
+  today: string
+  rows: HoursReportRow[]
+  classes: HoursReportClass[]
+  summary: {
+    subjects: number
+    short_subjects: number
+    short_hours: number
+    required: number
+    delivered: number
+    deliverable: number
+    taught: number
+    planned: number
+    percent_delivered: number
+    percent_planned: number
+    classes: number
+    unpublished_classes: number
+  }
+}
+
+export interface CancelledReport extends ReportBase {
+  rows: { date: string; weekday: string; school: string; class: string; subject: string; period: number; time: string; length: number; teachers: string; reason: string; by: string }[]
+  per_day: { day: number; label: string; count: number }[]
+  lost: { school: string; class: string; lost_hours: number; cancelled_by_hod: number }[]
+  summary: {
+    total: number
+    month: string
+    month_label: string
+    top_teachers: { name: string; count: number }[]
+    top_classes: { name: string; count: number }[]
+    lost_hours_total: number
+  }
+}
+
+export interface SubstitutionsReport extends ReportBase {
+  rows: { teacher: string; school: string; absent_days: number; lectures_needing_cover: number; subs_covered: number; periods_covered: number }[]
+  trend: { month: string; label: string; needs: number; filled: number }[]
+  summary: {
+    month: string
+    month_label: string
+    absences: number
+    absent_teachers: number
+    needs: number
+    filled: number
+    unfilled: number
+    cancelled: number
+    fill_rate: number
+    filled_auto: number
+    filled_manual: number
+    avg_minutes_to_fill: number | null
+  }
+}
+
+export interface CompareRow {
+  school: string
+  school_id: string
+  teachers: number
+  classes: number
+  published_classes: number
+  avg_hours: number
+  avg_pct: number
+  under: number
+  within: number
+  over: number
+  norm_hours: number
+  short_subjects: number
+  short_hours: number
+  absences: number
+  sub_needs: number
+  sub_filled: number
+  fill_rate: number
+  cancelled: number
+  pref_filled: number | null
+  pref_pct: number | null
+}
+
+export interface CompareReport extends ReportBase {
+  rows: CompareRow[]
+  month: string
+  month_label: string
+}
+
+export interface NormInfo {
+  college: { norm_hours: number; min_hours: number; label: string | null } | null
+  school: { norm_hours: number; min_hours: number; label: string | null } | null
+  effective: { norm_hours: number; min_hours: number; label: string; source: string }
+  built_in: { norm_hours: number; min_hours: number }
+}
+
+export interface AuditEntry {
+  id: number
+  at: string
+  action: string
+  entity: string
+  entity_id: string | null
+  summary: string
+  details: Record<string, unknown> | null
+  via: 'ui' | 'ai' | 'system'
+  actor: { id: string | null; name: string; email: string | null; role: string | null }
+  school: { id: string; name: string } | null
+}
+
+export interface AuditPage {
+  entries: AuditEntry[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface AuditFacets {
+  actions: { value: string; count: number }[]
+  entities: { value: string; count: number }[]
+  people: { id: string; name: string; email: string | null; role: string | null; count: number }[]
+  schools: { id: string; name: string }[]
+  vias: string[]
+  total: number
+  first: string | null
+  last: string | null
 }
