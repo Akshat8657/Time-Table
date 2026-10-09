@@ -23,7 +23,12 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
   'fixed-slots': lazy(() => import('./pages/FixedSlotsPage')),
   holidays: lazy(() => import('./pages/HolidaysPage')),
   profile: lazy(() => import('./pages/MyProfilePage')),
+  drafts: lazy(() => import('./pages/DraftsPage')),
+  conflicts: lazy(() => import('./pages/ConflictsPage')),
 }
+
+// the weekly grid editor of one draft (a sub-page of "Generate Timetable")
+const DraftEditor = lazy(() => import('./pages/DraftEditorPage'))
 
 function screenFor(item: { screen?: ScreenKey; live?: boolean }, Dashboard: ComponentType): ComponentType {
   if (item.screen) return SCREENS[item.screen]
@@ -52,6 +57,7 @@ function roleBranch(role: Role, Dashboard: ComponentType) {
         const Screen = screenFor(item, Dashboard)
         return <Route key={item.path} path={relative(item.path)} element={<Screen />} />
       })}
+      {role !== 'teacher' && <Route path="generate/:draftId" element={<DraftEditor />} />}
       {NAV[role]
         .filter((item) => item.children)
         .map((group) => (

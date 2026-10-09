@@ -282,3 +282,155 @@ export interface ProfilePayload {
   profile: Account
   available_subjects: { id: string; name: string; code: string; course: string; semester: number; running: boolean; label: string }[]
 }
+
+// ---------------------------------------------------------------------- Phase 2: timetable drafts
+export interface DraftSummary {
+  id: string
+  name: string
+  note: string | null
+  is_primary: boolean
+  updated_at: string
+  placements: number
+  percent: number
+  required: number
+  placed: number
+  missing: number
+  clashes: number
+  warnings: number
+}
+
+export interface DraftClassRow {
+  semester_id: string
+  label: string
+  subjects: number
+  locked_sessions: number
+  drafts: DraftSummary[]
+}
+
+export interface DraftsPayload {
+  active_term: Term | null
+  classes: DraftClassRow[]
+  max_drafts_per_class?: number
+}
+
+export interface PlacementEntry {
+  id: string
+  subject_id: string
+  subject_name: string
+  subject_code: string
+  is_lab: boolean
+  teacher_id: string | null
+  teacher_name: string | null
+  co_teacher_id: string | null
+  co_teacher_name: string | null
+}
+
+export interface Placement {
+  key: string
+  day: number
+  start_period: number
+  length: number
+  time: string | null
+  parallel: boolean
+  group_name: string | null
+  is_lab: boolean
+  entries: PlacementEntry[]
+  problems: string[]
+  warnings: string[]
+}
+
+export interface LockedItem {
+  key: string
+  day: number
+  start_period: number
+  length: number
+  kind: 'PE' | 'SOL' | 'OTHER'
+  label: string
+  time: string | null
+  teacher_name: string | null
+  co_teacher_name: string | null
+  combined: boolean
+  classes: string[]
+}
+
+export type PlaceStatus = 'missing' | 'complete' | 'over'
+
+export interface PaletteSubject {
+  id: string
+  name: string
+  code: string
+  credits: number
+  is_lab: boolean
+  special_kind: 'PE' | 'SOL' | null
+  group_id: string | null
+  group_name: string | null
+  teacher_name: string | null
+  co_teacher_name: string | null
+  required: number
+  placed: number
+  status: PlaceStatus
+}
+
+export interface PaletteGroup {
+  id: string
+  name: string
+  member_ids: string[]
+  required: number
+  placed: number
+  status: PlaceStatus
+  kind: string
+  is_lab: boolean
+}
+
+export interface DraftDetail {
+  draft: { id: string; name: string; note: string | null; is_primary: boolean; semester_id: string; class_label: string; updated_at: string | null }
+  siblings: { id: string; name: string; is_primary: boolean }[]
+  active_term: Term
+  grid: GridInfo
+  days: DayInfo[]
+  locked: LockedItem[]
+  placements: Placement[]
+  subjects: PaletteSubject[]
+  groups: PaletteGroup[]
+  completeness: { required: number; placed: number; percent: number; missing: number }
+  problems: { clashes: number; warnings: number }
+  no_pe_sol: boolean
+}
+
+export interface CellOption {
+  state: 'ok' | 'warn' | 'blocked'
+  hard: string[]
+  soft: string[]
+}
+
+export interface OptionsPayload {
+  unit: { subject_ids: string[]; names: string[]; length: number }
+  cells: Record<string, CellOption>
+  swaps: Record<string, { ok: boolean; reasons: string[]; warnings: string[] }>
+}
+
+export interface ConflictItem {
+  id: string
+  kind: 'clash' | 'missing' | 'warning'
+  code: string
+  message: string
+  semester_id: string
+  class_label: string
+  draft_id: string | null
+  draft_name: string | null
+  is_primary: boolean
+  day: number | null
+  day_name: string | null
+  start_period: number | null
+  length: number | null
+  placement_key: string | null
+  subjects: string | null
+}
+
+export interface ConflictsPayload {
+  active_term: Term | null
+  scope?: 'primary' | 'all'
+  items: ConflictItem[]
+  counts: { clashes: number; missing: number; warnings: number }
+  classes: { semester_id: string; label: string }[]
+}

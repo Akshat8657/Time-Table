@@ -12,7 +12,7 @@ from .security.deps import CurrentUser
 
 # table names below are fixed constants in our own code (never user input)
 _SCHOOL_TABLES = {
-    "courses", "semesters", "subjects", "elective_groups", "assignments", "fixed_slots", "calendar_entries",
+    "courses", "semesters", "subjects", "elective_groups", "assignments", "fixed_slots", "calendar_entries", "timetable_drafts",
 }
 
 

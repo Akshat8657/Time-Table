@@ -4,14 +4,14 @@
  */
 import {
   Bell, BookOpen, Bot, Building2, CalendarCheck, CalendarClock, CalendarDays, CalendarOff, CalendarRange, ChartColumn,
-  CircleUser, Clock, House, Inbox, LayoutDashboard, Link2, Network, Pin, Repeat, ScrollText, SlidersHorizontal, Users,
+  CircleUser, Clock, House, Inbox, LayoutDashboard, Link2, Network, Pin, Repeat, ScrollText, ShieldAlert, SlidersHorizontal, Users,
   WandSparkles, type LucideIcon,
 } from 'lucide-react'
 import type { Role } from './types'
 
 export type ScreenKey =
   | 'active-term' | 'college-setup' | 'structure' | 'timing' | 'subjects' | 'teachers' | 'assignment'
-  | 'fixed-slots' | 'holidays' | 'profile'
+  | 'fixed-slots' | 'holidays' | 'profile' | 'drafts' | 'conflicts'
 
 export interface NavItem {
   label: string
@@ -56,7 +56,8 @@ const ADMIN: NavItem[] = [
   { label: 'Assignment', path: '/admin/assignment', icon: Link2, phase: null, live: true, screen: 'assignment', about: 'Which teacher teaches which subject in which class.' },
   { label: 'Fixed Slots', path: '/admin/fixed-slots', icon: Pin, phase: null, live: true, screen: 'fixed-slots', about: 'Lock slots by hand - PE and SOL double blocks, or anything else.' },
   { label: 'Holidays & Events', path: '/admin/holidays-events', icon: CalendarDays, phase: null, live: true, screen: 'holidays', about: 'College-wide holidays, plus events that block a day or a few slots.' },
-  { label: 'Generate Timetable', path: '/admin/generate', icon: WandSparkles, phase: 'Phase 2-3', about: 'Build clash-free timetables, compare scored drafts and publish.' },
+  { label: 'Generate Timetable', path: '/admin/generate', icon: WandSparkles, phase: null, live: true, screen: 'drafts', about: 'Build a weekly timetable by hand (drag and drop, live clash checks). Automatic generation comes in Phase 3.' },
+  { label: 'Conflict Report', path: '/admin/conflicts', icon: ShieldAlert, phase: null, live: true, screen: 'conflicts', about: 'Every clash and every lecture still missing in the timetable drafts.' },
   { label: 'Substitutions', path: '/admin/substitutions', icon: Repeat, phase: 'Phase 5', about: 'Absences, substitution offers and the daily substitution sheet.' },
   { label: 'Reports', path: '/admin/reports', icon: ChartColumn, phase: 'Phase 6', about: 'Workload, free-teacher finder, hours progress and more.' },
   { label: 'Audit Log', path: '/admin/audit-log', icon: ScrollText, phase: 'Phase 6', about: 'A record of every important change - who, what and when.' },
@@ -82,7 +83,8 @@ const HOD: NavItem[] = [
   { label: 'School Timing', path: '/hod/timing', icon: Clock, phase: null, live: true, screen: 'timing', about: "Your school's lunch time and each class's day-wise schedule." },
   { label: 'Fixed Slots', path: '/hod/fixed-slots', icon: Pin, phase: null, live: true, screen: 'fixed-slots', about: 'Lock slots by hand - PE and SOL double blocks, or anything else.' },
   { label: 'Events & Holidays', path: '/hod/events-holidays', icon: CalendarDays, phase: null, live: true, screen: 'holidays', about: 'School events and extra holidays for your classes.' },
-  { label: 'Generate Timetable', path: '/hod/generate', icon: WandSparkles, phase: 'Phase 2-3', about: 'Build clash-free timetables, compare scored drafts and publish.' },
+  { label: 'Generate Timetable', path: '/hod/generate', icon: WandSparkles, phase: null, live: true, screen: 'drafts', about: 'Build a weekly timetable by hand (drag and drop, live clash checks). Automatic generation comes in Phase 3.' },
+  { label: 'Conflict Report', path: '/hod/conflicts', icon: ShieldAlert, phase: null, live: true, screen: 'conflicts', about: 'Every clash and every lecture still missing in the timetable drafts.' },
   { label: 'Substitutions', path: '/hod/substitutions', icon: Repeat, phase: 'Phase 5', about: 'Absences, substitution offers and the daily substitution sheet.' },
   { label: 'Reports', path: '/hod/reports', icon: ChartColumn, phase: 'Phase 6', about: 'Workload, free-teacher finder, hours progress and more.' },
   { label: 'AI Assistant', path: '/hod/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
@@ -116,7 +118,11 @@ export function leaves(role: Role): NavItem[] {
 }
 
 export function findItem(role: Role, pathname: string): NavItem | undefined {
-  return leaves(role).find((item) => item.path === pathname)
+  // a sub-page (the grid editor of a draft: /hod/generate/<id>) belongs to its parent menu item
+  return (
+    leaves(role).find((item) => item.path === pathname) ??
+    leaves(role).find((item) => item.screen === 'drafts' && pathname.startsWith(item.path + '/'))
+  )
 }
 
 /** Is this a real screen of that role? (used before trusting a remembered "last opened view") */

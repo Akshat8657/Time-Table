@@ -19,10 +19,13 @@ _UNIQUE = {
     "calendar_preloaded_unique": "That holiday is already in the list.",
     "academic_terms_kind_year_key": "That term already exists.",
     "academic_terms_one_active": "Another term is still active. Please try again.",
+    "timetable_drafts_name_uq": "This class already has a draft with that name.",
+    "timetable_drafts_one_primary": "This class already has a primary draft. Please try again.",
 }
 _EXCLUDE = {
     "fixed_slots_no_overlap_class": "This class already has a locked slot at that time.",
     "fixed_slots_no_overlap_teacher": "That teacher is already busy in another locked slot at that time.",
+    "draft_entries_no_overlap": "This class already has a lecture at that time in this draft.",
 }
 _FOREIGN = {
     "assignments_teacher_id_subject_id_fkey": "That teacher is not allowed to teach this subject. Add the subject to the teacher's 'subjects they can teach' first.",

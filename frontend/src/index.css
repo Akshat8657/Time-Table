@@ -194,3 +194,23 @@
     scroll-behavior: auto !important;
   }
 }
+
+
+/* ------------------------------------------------------------------
+   Timetable grid: every subject gets its own soft colour (hue set per subject: style={{ '--h': 210 }}).
+------------------------------------------------------------------- */
+.subj-chip {
+  background: hsl(var(--h, 220) 85% 93%);
+  color: hsl(var(--h, 220) 55% 22%);
+  border-color: hsl(var(--h, 220) 55% 78%);
+}
+[data-theme="dark"] .subj-chip {
+  background: hsl(var(--h, 220) 42% 20%);
+  color: hsl(var(--h, 220) 80% 90%);
+  border-color: hsl(var(--h, 220) 40% 34%);
+}
+@keyframes cell-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--brand-ring); }
+  50% { box-shadow: 0 0 0 6px var(--brand-ring); }
+}
+.cell-pulse { animation: cell-pulse 0.9s ease-in-out 3; }

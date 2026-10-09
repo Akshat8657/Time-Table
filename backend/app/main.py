@@ -27,7 +27,7 @@ from .errors import ApiError
 from .migrations import pending_versions
 from .routers import auth as auth_routes
 from .routers import (
-    assignments, calendar, dashboards, fixed_slots, health, imports, profile, structure, subjects, terms, timing, users,
+    assignments, calendar, dashboards, drafts, fixed_slots, health, imports, profile, structure, subjects, terms, timing, users,
 )
 from .security import sessions
 from .security.jwt_verify import TokenVerifier
@@ -248,5 +248,7 @@ app.include_router(subjects.router)
 app.include_router(assignments.router)
 app.include_router(timing.router)
 app.include_router(fixed_slots.router)
+app.include_router(drafts.router)
+app.include_router(drafts.conflicts_router)
 app.include_router(calendar.router)
 app.include_router(imports.router)

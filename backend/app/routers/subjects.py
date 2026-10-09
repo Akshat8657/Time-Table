@@ -257,15 +257,16 @@ async def delete_subject(subject_id: str, user: CurrentUser = Depends(require_ro
     used = await db.fetchrow(
         """
         select (select count(*) from public.assignments where subject_id = $1) as assigned,
-               (select count(*) from public.fixed_slots where subject_id = $1) as locked
+               (select count(*) from public.fixed_slots where subject_id = $1) as locked,
+               (select count(*) from public.draft_entries where subject_id = $1) as drafted
         """,
         old["id"],
     )
-    if used["assigned"] or used["locked"]:
+    if used["assigned"] or used["locked"] or used["drafted"]:
         raise ApiError(
             409, "IN_USE",
-            f"'{old['name']}' is still used in {used['assigned']} assignment(s) and {used['locked']} locked slot(s). "
-            "Remove those first.",
+            f"'{old['name']}' is still used in {used['assigned']} assignment(s), {used['locked']} locked slot(s) and "
+            f"{used['drafted']} timetable draft placement(s). Remove those first.",
         )
     async with db.transaction() as conn:
         await conn.execute("delete from public.subjects where id = $1", old["id"])

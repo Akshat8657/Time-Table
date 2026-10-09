@@ -169,6 +169,7 @@ function ShellLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   const item = user ? findItem(user.role, location.pathname) : undefined
+  const wide = /\/generate\/[^/]+$/.test(location.pathname) // the grid editor needs more room
 
   // remember the last opened screen (a cookie - only if the person accepted cookies)
   useEffect(() => {
@@ -242,7 +243,7 @@ function ShellLayout() {
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto w-full max-w-6xl">
+          <div className={`mx-auto w-full ${wide ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
             <Suspense
               fallback={
                 <div className="space-y-4" aria-busy="true" aria-label="Loading the screen">
