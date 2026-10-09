@@ -195,7 +195,12 @@ export interface TimingPayload {
 export interface FixedSlot {
   id: string
   semester_id: string
+  /** all covered classes joined with " + " (one name for a normal slot) */
   class_label: string
+  /** a COMBINED session covers several classes together (one teacher, one session) */
+  semester_ids: string[]
+  classes: { semester_id: string; class_label: string; subject_id: string | null; subject_name: string | null }[]
+  combined: boolean
   day: number
   day_name: string
   start_period: number

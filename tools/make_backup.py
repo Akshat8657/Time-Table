@@ -1,7 +1,8 @@
 """Makes the phase backup zip:   python tools/make_backup.py Phase0   ->   D:\\TimetableBackups\\Phase0.zip
 
 Left OUT on purpose (secret, or can be rebuilt with npm install / pip install):
-  .env and .env.* (except .env.example), node_modules, .venv / venv, caches, build output, logs, other zips.
+  .env and .env.* (except .env.example), seed_accounts.txt (temporary passwords of the seeded accounts), node_modules,
+  .venv / venv, caches, build output, logs, other zips.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ SKIP_SUFFIXES = {".pyc", ".log", ".zip", ".tsbuildinfo"}
 def skip_file(name: str) -> bool:
     if name == ".env.example":
         return False
-    if name == ".env" or name.startswith(".env."):
+    if name == ".env" or name.startswith(".env.") or name == "seed_accounts.txt":
         return True
     return Path(name).suffix.lower() in SKIP_SUFFIXES
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleCheck, CircleX, Lock, Pencil, Pin, Plus, TriangleAlert, Utensils } from 'lucide-react'
+import { CircleCheck, CircleX, Layers, Lock, Pencil, Pin, Plus, TriangleAlert, Utensils } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Alert } from '../components/Alert'
 import { Badge } from '../components/Badge'
@@ -133,6 +133,11 @@ function WeekGrid({
                           {slot.length > 1 ? ` · ${slot.length} periods` : ''}
                         </span>
                         <span className="text-[13px] font-semibold leading-tight">{slot.label}</span>
+                        {slot.combined && (
+                          <span className="flex items-center gap-1 text-xs font-semibold" title={`Combined session: ${slot.class_label}`}>
+                            <Layers className="size-3" aria-hidden="true" /> Combined · {slot.semester_ids.length} classes
+                          </span>
+                        )}
                         {slot.time && <span className="text-xs tabular-nums opacity-80">{slot.time}</span>}
                         {slot.teacher_name && (
                           <span className="text-xs opacity-80">
@@ -197,7 +202,7 @@ function SlotDialog({
   const scope = useSchoolScope()
   const toast = useToast()
   const editing = slot !== null
-  const [form, setForm] = useState({ kind: 'PE' as Kind, semester_id: '', day: '1', start_period: '1', length: '1', label: '', teacher_id: '', co_teacher_id: '', subject_id: '', note: '' })
+  const [form, setForm] = useState({ kind: 'PE' as Kind, semester_ids: [] as string[], day: '1', start_period: '1', length: '1', label: '', teacher_id: '', co_teacher_id: '', subject_id: '', note: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [check, setCheck] = useState<{ ok: boolean; problems: string[]; notes: string[] } | null>(null)
@@ -210,12 +215,12 @@ function SlotDialog({
     setCheck(null)
     if (slot) {
       setForm({
-        kind: slot.kind, semester_id: slot.semester_id, day: String(slot.day), start_period: String(slot.start_period), length: String(slot.length),
+        kind: slot.kind, semester_ids: slot.semester_ids, day: String(slot.day), start_period: String(slot.start_period), length: String(slot.length),
         label: slot.kind === 'OTHER' ? slot.label : '', teacher_id: slot.teacher_id ?? '', co_teacher_id: slot.co_teacher_id ?? '',
         subject_id: slot.subject_id ?? '', note: slot.note ?? '',
       })
     } else if (preset) {
-      setForm({ kind: preset.kind, semester_id: preset.semester_id, day: String(preset.day), start_period: String(preset.start_period), length: '1', label: '', teacher_id: '', co_teacher_id: '', subject_id: '', note: '' })
+      setForm({ kind: preset.kind, semester_ids: [preset.semester_id], day: String(preset.day), start_period: String(preset.start_period), length: '1', label: '', teacher_id: '', co_teacher_id: '', subject_id: '', note: '' })
     }
   }, [open, slot, preset])
 
@@ -224,15 +229,18 @@ function SlotDialog({
   const periods = payload.grid.periods
   const first = periods[Number(form.start_period) - 1]
   const last = periods[Number(form.start_period) + length - 2]
-  const cls = payload.classes.find((c) => c.semester_id === form.semester_id)
-  const workingDays = (cls?.days ?? payload.classes[0]?.days ?? []).filter((d) => d.working)
+  const picked = payload.classes.filter((c) => form.semester_ids.includes(c.semester_id))
+  const combined = picked.length > 1
+  const workingDays = (picked[0]?.days ?? payload.classes[0]?.days ?? []).filter((d) => d.working)
+  const toggleClass = (id: string) =>
+    setForm((f) => ({ ...f, semester_ids: f.semester_ids.includes(id) ? f.semester_ids.filter((x) => x !== id) : [...f.semester_ids, id] }))
 
-  const subjects = useApi<{ subjects: SubjectRow[] }>(open && isOther && form.semester_id ? scope.path(`/subjects?semester_id=${form.semester_id}`) : null)
+  const subjects = useApi<{ subjects: SubjectRow[] }>(open && isOther && form.semester_ids.length === 1 ? scope.path(`/subjects?semester_id=${form.semester_ids[0]}`) : null)
 
   // live "is this possible?" (only for a NEW slot; an existing one is checked when you press Save)
   const settled = useDebounced(form, 350)
   useEffect(() => {
-    if (!open || editing || !settled.semester_id) return
+    if (!open || editing || settled.semester_ids.length === 0) return
     if (settled.kind === 'OTHER' && !settled.label.trim()) {
       setCheck(null)
       return
@@ -241,10 +249,10 @@ function SlotDialog({
     api<{ ok: boolean; problems: string[]; notes: string[] }>('/fixed-slots/check', {
       method: 'POST',
       body: {
-        semester_id: settled.semester_id, day: Number(settled.day), start_period: Number(settled.start_period), kind: settled.kind,
+        semester_ids: settled.semester_ids, day: Number(settled.day), start_period: Number(settled.start_period), kind: settled.kind,
         length: settled.kind === 'OTHER' ? Number(settled.length) : undefined,
         label: settled.label || undefined, teacher_id: settled.teacher_id || undefined, co_teacher_id: settled.co_teacher_id || undefined,
-        subject_id: settled.subject_id || undefined,
+        subject_id: settled.semester_ids.length === 1 ? settled.subject_id || undefined : undefined,
       },
     }).then(
       (res) => !cancelled && setCheck(res),
@@ -263,15 +271,20 @@ function SlotDialog({
       day: Number(form.day), start_period: Number(form.start_period), kind: form.kind,
       length: isOther ? Number(form.length) : undefined,
       label: form.label || undefined, teacher_id: form.teacher_id || null, co_teacher_id: form.co_teacher_id || null,
-      subject_id: form.subject_id || null, note: form.note || null,
+      subject_id: form.semester_ids.length === 1 ? form.subject_id || null : null, note: form.note || null,
+    }
+    if (form.semester_ids.length === 0) {
+      setError('Please tick at least one class.')
+      setBusy(false)
+      return
     }
     try {
       if (editing && slot) {
         const { kind: _kind, ...patch } = body
         void _kind
-        await api(`/fixed-slots/${slot.id}`, { method: 'PATCH', body: patch })
+        await api(`/fixed-slots/${slot.id}`, { method: 'PATCH', body: { ...patch, semester_ids: form.semester_ids } })
       } else {
-        await api('/fixed-slots', { method: 'POST', body: { ...body, semester_id: form.semester_id } })
+        await api('/fixed-slots', { method: 'POST', body: { ...body, semester_ids: form.semester_ids } })
       }
       toast.success('Locked slot saved.')
       onSaved()
@@ -284,7 +297,7 @@ function SlotDialog({
   }
 
   const personOptions = people.map((p) => ({ value: p.id, label: p.role === 'hod' ? `${p.full_name} (HOD)` : p.full_name }))
-  const blocked = !editing && !!check && !check.ok
+  const blocked = (!editing && !!check && !check.ok) || form.semester_ids.length === 0
 
   return (
     <>
@@ -293,7 +306,7 @@ function SlotDialog({
         onClose={() => !busy && onClose()}
         size="lg"
         title={editing ? `Edit “${slot?.label}”` : 'Lock a slot'}
-        description={editing ? slot?.class_label : 'A locked slot is never moved when timetables are generated.'}
+        description={editing ? slot?.class_label : 'A locked slot is never moved when timetables are generated. Tick several classes for a combined session.'}
         footer={
           <>
             {editing && (
@@ -325,14 +338,35 @@ function SlotDialog({
             </fieldset>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <SelectField
-              label="Class"
-              value={form.semester_id}
-              onChange={(v) => set('semester_id', v)}
-              disabled={editing}
-              options={payload.classes.map((c) => ({ value: c.semester_id, label: c.label }))}
-            />
+          <fieldset>
+            <legend className="mb-1 text-[13px] font-medium text-ink">Classes</legend>
+            <p className="mb-2 text-xs text-muted">
+              Tick <span className="font-semibold text-ink">more than one class</span> for a <span className="font-semibold text-ink">combined session</span>: the classes attend together with one teacher.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {payload.classes.map((c) => {
+                const on = form.semester_ids.includes(c.semester_id)
+                const none = form.kind !== 'OTHER' && c.no_pe_sol && !on
+                return (
+                  <label
+                    key={c.semester_id}
+                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${none ? 'cursor-not-allowed border-line bg-surface-2 text-subtle' : on ? 'cursor-pointer border-brand bg-brand-soft font-medium text-brand-text' : 'cursor-pointer border-line-strong bg-surface text-muted hover:bg-hover'}`}
+                  >
+                    <input type="checkbox" className="size-4 accent-[var(--brand-solid)]" checked={on} disabled={none} onChange={() => toggleClass(c.semester_id)} />
+                    <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                    {none && <span className="text-xs">no PE / SOL</span>}
+                  </label>
+                )
+              })}
+            </div>
+          </fieldset>
+          {combined && (
+            <Alert tone="info" title="Combined session">
+              {picked.length} classes attend this together as <span className="font-semibold">one session</span> with one teacher. The teacher is not double-booked, and every ticked class is busy in this slot.
+            </Alert>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <SelectField label="Day" value={form.day} onChange={(v) => set('day', v)} options={workingDays.map((d) => ({ value: String(d.day), label: d.name }))} />
             <SelectField
               label="Starts at"
@@ -367,7 +401,7 @@ function SlotDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <SelectField label="Teacher (optional)" value={form.teacher_id} onChange={(v) => set('teacher_id', v)} placeholder="No teacher" options={personOptions} />
             <SelectField label="Co-teacher (optional)" value={form.co_teacher_id} onChange={(v) => set('co_teacher_id', v)} placeholder="No co-teacher" disabled={!form.teacher_id} options={personOptions.filter((o) => o.value !== form.teacher_id)} />
-            {isOther && (
+            {isOther && !combined && (
               <SelectField
                 className="sm:col-span-2"
                 label="Subject (optional)"
@@ -405,7 +439,7 @@ function SlotDialog({
       <ConfirmDialog
         open={confirmDelete}
         tone="danger"
-        title="Remove this locked slot?"
+        title={slot?.combined ? 'Remove this combined session?' : 'Remove this locked slot?'}
         confirmLabel="Remove lock"
         onClose={() => setConfirmDelete(false)}
         onConfirm={async () => {
@@ -416,7 +450,7 @@ function SlotDialog({
           onClose()
         }}
       >
-        <p>The period becomes free again. Nothing else is changed.</p>
+        <p>{slot?.combined ? `The period becomes free again for all ${slot.semester_ids.length} classes. Nothing else is changed.` : 'The period becomes free again. Nothing else is changed.'}</p>
       </ConfirmDialog>
     </>
   )
@@ -449,7 +483,7 @@ export default function FixedSlotsPage() {
   }, [data, classId])
 
   const cls = data?.classes.find((c) => c.semester_id === classId)
-  const classSlots = useMemo(() => (data?.slots ?? []).filter((s) => s.semester_id === classId), [data, classId])
+  const classSlots = useMemo(() => (data?.slots ?? []).filter((s) => s.semester_ids.includes(classId)), [data, classId])
   const allProblems = (data?.slots ?? []).filter((s) => s.problems.length > 0)
 
   if (termReady && !active) {
@@ -592,13 +626,30 @@ export default function FixedSlotsPage() {
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <Badge tone={s.kind === 'PE' ? 'success' : s.kind === 'SOL' ? 'info' : 'brand'}>{KIND_NAME[s.kind]}</Badge>
+                    {s.combined && <Badge tone="brand">Combined · {s.semester_ids.length} classes</Badge>}
                     {s.problems.length > 0 ? <Badge tone="danger">Not possible now</Badge> : s.notes.length > 0 ? <Badge tone="info">Around lunch</Badge> : <Badge tone="success">OK</Badge>}
                     {s.teacher_name && <Badge>{s.teacher_name}{s.co_teacher_name ? ` + ${s.co_teacher_name}` : ''}</Badge>}
                   </div>
                 </div>
               )}
               columns={[
-                { key: 'class', header: 'Class', cell: (s) => <span className="whitespace-nowrap font-medium text-ink">{s.class_label}</span> },
+                {
+                  key: 'class',
+                  header: 'Class',
+                  cell: (s) =>
+                    s.combined ? (
+                      <div className="space-y-1">
+                        <Badge tone="brand">Combined · {s.semester_ids.length} classes</Badge>
+                        <ul className="text-[13px] text-ink">
+                          {s.classes.map((c) => (
+                            <li key={c.semester_id} className="whitespace-nowrap">{c.class_label}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <span className="whitespace-nowrap font-medium text-ink">{s.class_label}</span>
+                    ),
+                },
                 {
                   key: 'what',
                   header: 'Slot',

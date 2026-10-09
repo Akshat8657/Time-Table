@@ -221,7 +221,7 @@ async def set_active(auth: SupabaseAuth, actor: CurrentUser, target: asyncpg.Rec
                 """
                 select (select count(*) from public.assignments a join public.academic_terms t on t.id = a.term_id
                         where (a.teacher_id = $1 or a.co_teacher_id = $1) and t.is_active)
-                     + (select count(*) from public.fixed_slots f join public.academic_terms t on t.id = f.term_id
+                     + (select count(distinct coalesce(f.combined_group_id, f.id)) from public.fixed_slots f join public.academic_terms t on t.id = f.term_id
                         where (f.teacher_id = $1 or f.co_teacher_id = $1) and t.is_active)
                 """,
                 target["id"],

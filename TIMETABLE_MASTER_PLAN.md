@@ -6,7 +6,7 @@
 > If something is missing or unclear → **ask the user in simple Hinglish** before guessing.
 > The user is a **non-coder**. You do all the work. All instructions to him must be in simple Hinglish with short numbered steps.
 
-Last updated: 06 Oct 2026 (V8 — three real-college refinements: a weekday can be marked fully OFF for a semester (Saturday off, OJT/internship days); a double block may sit around lunch (Period 3 + Period 4 style) because "back-to-back" means consecutive periods; labs are typically 1 credit yet always one 2-period block per week — never warn about that mismatch. Everything else unchanged.)
+Last updated: 06 Oct 2026 (V9 — COMBINED sessions added: one fixed slot can cover several classes together (e.g. SOL for all Sem 1 classes of the school) with one teacher — one session, no teacher clash, every covered class occupied. V8's OFF-days, around-lunch double blocks and lab rules stay unchanged.)
 
 ---
 
@@ -147,6 +147,7 @@ Every dashboard shows: today's absents, pending substitutions, "subject hours sh
   - **Always back-to-back 2 lectures** (double block), exactly like labs.
   - Their weekly slots are **manually fixed** by HOD/Admin on the Fixed Slots screen.
   - The generator treats them as LOCKED and schedules everything else around them.
+  - **Combined classes allowed**: one PE/SOL fixed slot can cover SEVERAL classes together (e.g. M.Sc. IT Sem 1 + M.Sc. AI Sem 1 attend SOL as one combined class with one teacher). It counts as ONE session: the teacher is NOT double-booked, and every covered class is occupied in that slot. General rule: any FIXED slot may cover multiple classes this way.
   - **Credits do NOT decide PE/SOL lectures.** Whatever their credits (even 1), every PE/SOL session on the timetable is ALWAYS a double block counted as **2 lectures (2 hours, back-to-back)**. Their weekly lecture count comes ONLY from the manually fixed slots, never from credits. The "credits = minimum weekly lectures" rule does not apply to PE and SOL.
 
 ---
@@ -351,6 +352,7 @@ Every phase: build → self-test → backup zip → Hinglish report (Section 20)
 
 - HOD is also a teacher → HOD always has Teacher Mode.
 - PE/SOL = fixed + compulsory + ALWAYS a 2-lecture double block; credits NEVER decide their count.
+- A fixed slot can cover MULTIPLE classes together (combined PE/SOL) — one teacher, one session, no clash.
 - Electives of one group = SAME parallel slots.
 - Visiting faculty days/hours = hard limit.
 - Early release is DAY-WISE per semester — a different end time is possible for each weekday, and a day can be fully OFF (Saturday off, OJT days).

@@ -22,6 +22,14 @@ def fields(resp) -> dict:
     return resp.json().get("fields", {})
 
 
+@pytest.fixture(scope="module", autouse=True)
+def monday_to_friday_college(p1):
+    """These tests are written for a Monday-Friday college. The REAL college (seeded) works Monday-Saturday, so the test sets
+    its own precondition; the end of the test session puts the real timing back."""
+    r = p1.api(p1.admin, "PUT", "/api/timing/college", json={"college_start": "10:00", "college_end": "16:50", "lecture_minutes": 60, "break_minutes": 5, "days_per_week": 5})
+    assert r.status_code == 200, r.text
+
+
 def login(email: str, password: str):
     c = new_client()
     r = c.post("/api/auth/login", json={"email": email, "password": password, "remember_me": False})
@@ -39,6 +47,8 @@ def test_everybody_can_read_the_terms_but_only_admin_and_hod_can_change_them(p1,
 
 
 def test_select_active_term_keeps_old_terms_as_history(p1):
+    # the real college already runs "Odd 2026": park the college on a throw-away term first so that switching is a real change
+    assert p1.api(p1.admin, "PUT", "/api/terms/active", json={"kind": "even", "year": 2098}).status_code == 200
     r = p1.api(p1.admin, "PUT", "/api/terms/active", json={"kind": "odd", "year": 2026})
     assert r.status_code == 200 and r.json()["changed"] is True
     assert r.json()["active"]["name"] == "Odd 2026"

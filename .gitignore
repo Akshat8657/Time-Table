@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# temporary passwords of the accounts made by the seed run (python -m scripts.seed_college)
+seed_accounts.txt
 
 # ---- Python ----
 .venv/

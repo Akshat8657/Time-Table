@@ -125,7 +125,8 @@ async def _broken_slots(school_id: uuid.UUID | None = None, semester_id: uuid.UU
     from .fixed_slots import problems_for_term
 
     found = await problems_for_term(school_id)
-    return len([s for s in found if s["problems"] and (semester_id is None or s["semester_id"] == str(semester_id))])
+    # a combined session (one row per covered class) is ONE locked slot
+    return len({s["group"] for s in found if s["problems"] and (semester_id is None or s["semester_id"] == str(semester_id))})
 
 
 @router.put("/college")

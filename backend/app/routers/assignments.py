@@ -31,9 +31,12 @@ LOAD_SQL = """
 select p.id,
        coalesce((select sum(s.credits) from public.assignments a join public.subjects s on s.id = a.subject_id
                  where (a.teacher_id = p.id or a.co_teacher_id = p.id) and a.term_id = $2 and s.special_kind is null), 0) as credits_load,
-       coalesce((select sum(f.length) from public.fixed_slots f left join public.subjects s on s.id = f.subject_id
-                 where (f.teacher_id = p.id or f.co_teacher_id = p.id) and f.term_id = $2
-                   and (f.subject_id is null or s.special_kind is not null)), 0) as locked_load
+       coalesce((select sum(x.length) from (
+                   select distinct on (coalesce(f.combined_group_id, f.id)) f.length
+                   from public.fixed_slots f left join public.subjects s on s.id = f.subject_id
+                   where (f.teacher_id = p.id or f.co_teacher_id = p.id) and f.term_id = $2
+                     and (f.subject_id is null or s.special_kind is not null)
+                   order by coalesce(f.combined_group_id, f.id)) x), 0) as locked_load
 from public.profiles p
 where p.school_id = $1
 """
