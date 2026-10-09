@@ -334,6 +334,8 @@ export interface Placement {
   parallel: boolean
   group_name: string | null
   is_lab: boolean
+  /** pinned by hand (semi-automatic mode): the generator keeps it, the editor refuses to move it */
+  is_locked: boolean
   entries: PlacementEntry[]
   problems: string[]
   warnings: string[]
@@ -433,4 +435,92 @@ export interface ConflictsPayload {
   items: ConflictItem[]
   counts: { clashes: number; missing: number; warnings: number }
   classes: { semester_id: string; label: string }[]
+}
+
+// ---------------------------------------------------------------------- Phase 3: automatic generation
+export interface GenRule {
+  name: string
+  label: string
+  default: number
+}
+
+export interface WeightsPayload {
+  weights: Record<string, number>
+  rules: GenRule[]
+}
+
+export interface GenRuleScore {
+  rule: string
+  label: string
+  weight: number
+  satisfaction: number
+  points_lost: number
+}
+
+export interface GenClassResult {
+  label: string
+  percent: number
+  placed: number
+  required: number
+  missing: number
+}
+
+export interface GenUnplaced {
+  class_label: string
+  unit: string
+  missing: number
+  needed: number
+  message: string
+}
+
+export interface GenSolution {
+  id: string
+  label: string
+  score: number
+  is_used: boolean
+  in_use: boolean
+  complete: boolean
+  breakdown: {
+    rules: GenRuleScore[]
+    classes: Record<string, GenClassResult>
+    unplaced: GenUnplaced[]
+    placed: number
+    required: number
+  }
+  drafts: { draft_id: string; semester_id: string; name: string }[]
+}
+
+export interface GenFinding {
+  kind: string
+  about: string
+  message: string
+}
+
+export interface GenRun {
+  id: string
+  name: string
+  mode: 'fresh' | 'keep_locked'
+  status: 'running' | 'done' | 'failed' | 'cancelled'
+  progress: number
+  message: string | null
+  error: string | null
+  precheck: GenFinding[]
+  weights: Record<string, number>
+  created_at: string
+  finished_at: string | null
+  solutions: GenSolution[]
+}
+
+export interface GenRunsPayload {
+  active_term: Term | null
+  runs: GenRun[]
+}
+
+export interface CopyableTerm {
+  id: string
+  name: string
+  kind: 'odd' | 'even'
+  primaries: number
+  drafts: number
+  same_kind: boolean
 }

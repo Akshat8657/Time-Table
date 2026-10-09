@@ -86,6 +86,7 @@ class Entry:
     start: int
     length: int
     parallel_key: uuid.UUID | None
+    is_locked: bool = False  # pinned by hand (semi-automatic mode): the generator keeps it, the editor refuses to move it
 
     @property
     def key(self) -> uuid.UUID:

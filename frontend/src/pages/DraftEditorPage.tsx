@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft, ArrowLeftRight, Ban, Copy, Layers, Lock, MousePointerClick, Pencil, ShieldAlert, Star, Trash2, TriangleAlert, Utensils, X,
+  ArrowLeft, ArrowLeftRight, Ban, Copy, Layers, Lock, MousePointerClick, Pencil, Pin, PinOff, ShieldAlert, Star, Trash2, TriangleAlert, Utensils, X,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Alert } from '../components/Alert'
@@ -61,10 +61,11 @@ interface GridProps {
   onDragPlacement: (p: Placement, e: DragEvent) => void
   onDragEnd: (e: DragEvent) => void
   onRemove: (p: Placement) => void
+  onTogglePin: (p: Placement) => void
   onDrop: (day: number, period: number, e: DragEvent) => void
 }
 
-const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash, onCell, onHover, onPlacement, onDragPlacement, onDragEnd, onRemove, onDrop }: GridProps) {
+const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash, onCell, onHover, onPlacement, onDragPlacement, onDragEnd, onRemove, onTogglePin, onDrop }: GridProps) {
   const rows = useMemo(() => buildRows(d.grid), [d.grid])
   const working = d.days.filter((x) => x.working)
   const rowOfPeriod = useMemo(() => {
@@ -141,8 +142,8 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                     <td key={x.day} rowSpan={span} className="p-1 align-top">
                       <div
                         id={`cell-${cellId}`}
-                        draggable
-                        onDragStart={(e) => onDragPlacement(p, e)}
+                        draggable={!p.is_locked}
+                        onDragStart={(e) => (p.is_locked ? e.preventDefault() : onDragPlacement(p, e))}
                         onDragEnd={onDragEnd}
                         onDragOver={(e) => picked && (!swap || swap.ok) && !(picked.kind === 'move' && picked.key === p.key) && e.preventDefault()}
                         onDrop={(e) => onDrop(x.day, p.start_period, e)}
@@ -153,9 +154,9 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                         tabIndex={0}
                         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), picked && !isPicked ? onCell(x.day, p.start_period) : onPlacement(p))}
                         aria-label={`${p.entries.map((e) => e.subject_name).join(' and ')}, ${x.name} ${periodsText(p.start_period, p.length)}${bad ? ', has a clash' : ''}`}
-                        title={bad ? p.problems.join(' ') : swap ? (swap.ok ? 'Click to swap places' : `Cannot swap: ${swap.reasons[0]}`) : 'Click to move or remove'}
+                        title={bad ? p.problems.join(' ') : p.is_locked ? 'Pinned: the generator keeps it here. Unpin to move it.' : swap ? (swap.ok ? 'Click to swap places' : `Cannot swap: ${swap.reasons[0]}`) : 'Click to move or remove'}
                         style={{ ['--h' as string]: hue }}
-                        className={`group relative flex h-full min-h-[3.75rem] w-full cursor-pointer flex-col justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-left transition hover:brightness-95 focus-visible:outline-2 ${bad ? 'border-danger bg-danger-soft text-danger' : 'subj-chip'} ${isPicked ? 'ring-2 ring-brand' : ''} ${swap ? (swap.ok ? 'ring-2 ring-success-line' : 'opacity-50') : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
+                        className={`group relative flex h-full min-h-[3.75rem] w-full cursor-pointer flex-col justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-left transition hover:brightness-95 focus-visible:outline-2 ${bad ? 'border-danger bg-danger-soft text-danger' : 'subj-chip'} ${isPicked ? 'ring-2 ring-brand' : ''} ${swap ? (swap.ok ? 'ring-2 ring-success-line' : 'opacity-50') : ''} ${p.is_locked ? 'ring-2 ring-warning-line' : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
                       >
                         {p.entries.map((e) => (
                           <span key={e.id} className="block leading-tight">
@@ -175,20 +176,41 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                               <Layers className="size-3" aria-hidden="true" /> Parallel
                             </span>
                           )}
+                          {p.is_locked && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-black/10 px-1">
+                              <Pin className="size-3" aria-hidden="true" /> Pinned
+                            </span>
+                          )}
                           {bad && <TriangleAlert className="size-3.5" aria-label="Clash" />}
                           {!bad && p.warnings.length > 0 && <TriangleAlert className="size-3.5 text-warning" aria-label="Warning" />}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onRemove(p)
-                          }}
-                          aria-label={`Remove ${p.entries.map((e) => e.subject_name).join(' and ')}`}
-                          className="absolute right-1 top-1 rounded-md bg-black/10 p-0.5 opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
-                        >
-                          <X className="size-3.5" />
-                        </button>
+                        <span className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onTogglePin(p)
+                            }}
+                            aria-label={p.is_locked ? `Unpin ${p.entries.map((e) => e.subject_name).join(' and ')}` : `Pin ${p.entries.map((e) => e.subject_name).join(' and ')} (the generator keeps it here)`}
+                            title={p.is_locked ? 'Unpin' : 'Pin: the generator keeps it exactly here'}
+                            className="rounded-md bg-black/10 p-0.5"
+                          >
+                            {p.is_locked ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                          </button>
+                          {!p.is_locked && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onRemove(p)
+                              }}
+                              aria-label={`Remove ${p.entries.map((e) => e.subject_name).join(' and ')}`}
+                              className="rounded-md bg-black/10 p-0.5"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          )}
+                        </span>
                       </div>
                     </td>
                   )
@@ -515,11 +537,15 @@ export default function DraftEditorPage() {
 
   const onPlacement = useCallback(
     (p: Placement) => {
+      if (p.is_locked) {
+        toast.info('This placement is pinned - the generator keeps it here. Unpin it (📌) to move it.')
+        return
+      }
       const name = p.entries.map((e) => e.subject_name).join(' ∥ ')
       if (pickedRef.current?.kind === 'move' && pickedRef.current.key === p.key) clearPick()
       else pick({ kind: 'move', key: p.key, name, length: p.length })
     },
-    [pick, clearPick],
+    [pick, clearPick, toast],
   )
 
   const onDragPlacement = useCallback(
@@ -534,6 +560,14 @@ export default function DraftEditorPage() {
 
   const onRemove = useCallback(
     (p: Placement) => void mutate(() => api<Mutation>(`/drafts/${draftId}/placements/${p.key}`, { method: 'DELETE' })).then((ok) => ok && toast.success('Removed from the draft.')),
+    [draftId, mutate, toast],
+  )
+
+  const onTogglePin = useCallback(
+    (p: Placement) =>
+      void mutate(() => api<Mutation>(`/drafts/${draftId}/placements/${p.key}/lock`, { method: 'POST', body: { locked: !p.is_locked } })).then(
+        (ok) => ok && toast.success(p.is_locked ? 'Unpinned.' : 'Pinned - "Generate (keep pinned placements)" will build around it.'),
+      ),
     [draftId, mutate, toast],
   )
 
@@ -755,7 +789,7 @@ export default function DraftEditorPage() {
           <WeekGrid
             d={d} hues={hues} picked={picked} options={options} hover={hover} flash={flash}
             onCell={(day, period) => void onCell(day, period)} onHover={setHover} onPlacement={onPlacement}
-            onDragPlacement={onDragPlacement} onDragEnd={onDragEnd} onRemove={onRemove} onDrop={onDrop}
+            onDragPlacement={onDragPlacement} onDragEnd={onDragEnd} onRemove={onRemove} onTogglePin={onTogglePin} onDrop={onDrop}
           />
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -765,6 +799,7 @@ export default function DraftEditorPage() {
             <span className="rounded border border-success-line bg-success-soft px-2 py-0.5 text-success">Free</span>
             <span className="rounded border border-warning-line bg-warning-soft px-2 py-0.5 text-warning">Free, with a warning</span>
             <span className="inline-flex items-center gap-1"><ArrowLeftRight className="size-3.5" /> drop on another lecture = swap</span>
+            <span className="inline-flex items-center gap-1"><Pin className="size-3.5" /> pinned = kept by the generator</span>
           </div>
 
           {problemList.length > 0 && (
@@ -874,7 +909,10 @@ export default function DraftEditorPage() {
           toast.success('The draft is empty again.')
         }}
       >
-        <p>All {d.placements.length} placements are removed from “{d.draft.name}”. Locked slots (PE / SOL / fixed) stay. This cannot be undone.</p>
+        <p>
+          All {d.placements.filter((p) => !p.is_locked).length} unpinned placements are removed from “{d.draft.name}”.
+          {d.placements.some((p) => p.is_locked) ? ' Pinned placements stay.' : ''} Locked slots (PE / SOL / fixed) stay too. This cannot be undone.
+        </p>
       </ConfirmDialog>
     </>
   )

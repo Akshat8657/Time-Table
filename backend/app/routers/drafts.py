@@ -99,7 +99,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
         db.fetch("select * from public.timetable_drafts where school_id = $1 and term_id = $2", school_id, term["id"]),
         db.fetch(
             """
-            select e.id, e.draft_id, e.semester_id, e.subject_id, e.day, e.start_period, e.length, e.parallel_key
+            select e.id, e.draft_id, e.semester_id, e.subject_id, e.day, e.start_period, e.length, e.parallel_key, e.is_locked
             from public.draft_entries e join public.timetable_drafts d on d.id = e.draft_id
             where d.school_id = $1 and d.term_id = $2
             """,
@@ -125,7 +125,7 @@ async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Load
             for f in fixed
         ],
         drafts={d["id"]: sch.DraftInfo(d["id"], d["semester_id"], d["name"], d["is_primary"]) for d in drafts},
-        entries=[sch.Entry(e["id"], e["draft_id"], e["semester_id"], e["subject_id"], e["day"], e["start_period"], e["length"], e["parallel_key"]) for e in entries],
+        entries=[sch.Entry(e["id"], e["draft_id"], e["semester_id"], e["subject_id"], e["day"], e["start_period"], e["length"], e["parallel_key"], e["is_locked"]) for e in entries],
     )
     return Loaded(ctx, term, school_id, list(sems), {d["id"]: dict(d) for d in drafts})
 
@@ -167,6 +167,7 @@ def placement_out(L: Loaded, draft_id: uuid.UUID, rows: list[sch.Entry]) -> dict
         "key": str(first.key), "day": first.day, "start_period": first.start, "length": first.length,
         "time": timing_svc.time_range(ctx.grid, first.start, first.length),
         "parallel": len(rows) > 1, "group_name": subs[0].group_name if len(rows) > 1 else None, "is_lab": subs[0].is_lab,
+        "is_locked": first.is_locked,
         "entries": entries, "problems": _msgs(res.hard), "warnings": _msgs(res.soft),
     }
 
@@ -251,8 +252,8 @@ def _entry_row(r: dict[str, Any]) -> sch.Entry:
 
 
 _INSERT = """
-insert into public.draft_entries (id, draft_id, school_id, semester_id, subject_id, day, start_period, length, parallel_key, created_by)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+insert into public.draft_entries (id, draft_id, school_id, semester_id, subject_id, day, start_period, length, parallel_key, created_by, is_locked)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 """
 
 
@@ -328,7 +329,7 @@ async def create_draft(body: DraftIn, user: CurrentUser = Depends(require_roles(
             pk = None
             if e.parallel_key is not None:
                 pk = remap.setdefault(e.parallel_key, uuid.uuid4())
-            await conn.execute(_INSERT, uuid.uuid4(), new_id, sem["school_id"], sem["id"], e.subject_id, e.day, e.start, e.length, pk, uuid.UUID(user.id))
+            await conn.execute(_INSERT, uuid.uuid4(), new_id, sem["school_id"], sem["id"], e.subject_id, e.day, e.start, e.length, pk, uuid.UUID(user.id), e.is_locked)
         await audit.record(
             conn, user, "create", "timetable_draft", new_id,
             f"Created draft '{body.name}' for {label}" + (f" (copy of '{ctx.drafts[as_uuid(body.copy_from, 'draft')].name}')" if body.copy_from else ""),
@@ -385,6 +386,103 @@ async def delete_draft(draft_id: str, user: CurrentUser = Depends(require_roles(
             f"Deleted draft '{row['name']}'" + (f"; '{promoted}' is now the primary draft" if promoted else ""), school_id=row["school_id"],
         )
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------------------------------- copy a past term
+@router.get("/copyable-terms")
+async def copyable_terms(school_id: str | None = None, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
+    """Past terms whose drafts can seed the new term ("copy previous semester as a starting base", plan Section 11)."""
+    sid = await resolve_school(user, school_id)
+    term = await term_svc.require_active_term()
+    rows = await db.fetch(
+        """
+        select t.id, t.kind, t.year, count(*) filter (where d.is_primary) as primaries, count(*) as drafts
+        from public.academic_terms t join public.timetable_drafts d on d.term_id = t.id and d.school_id = $1
+        where t.id <> $2 group by t.id order by t.year desc, t.kind desc
+        """,
+        sid, term["id"],
+    )
+    return {
+        "active_term": term_svc.term_out(term),
+        "terms": [
+            {"id": str(r["id"]), "name": term_svc.term_name(r["kind"], r["year"]), "kind": r["kind"],
+             "primaries": r["primaries"], "drafts": r["drafts"], "same_kind": r["kind"] == term["kind"]}
+            for r in rows
+        ],
+    }
+
+
+class CopyTermIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    term_id: str
+    school_id: str | None = None
+
+
+@router.post("/copy-term", status_code=201)
+async def copy_term(body: CopyTermIn, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
+    """Copies the PRIMARY drafts of a past term into the active term as a starting base (one new draft per class)."""
+    sid = await resolve_school(user, body.school_id)
+    term = await term_svc.require_active_term()
+    source = await db.fetchrow("select * from public.academic_terms where id = $1", as_uuid(body.term_id, "term"))
+    if source is None:
+        raise ApiError(404, "NOT_FOUND", "That term was not found.")
+    if source["id"] == term["id"]:
+        raise ApiError(422, "VALIDATION_ERROR", "Choose a PAST term - the active term cannot be copied onto itself.")
+    source_name = term_svc.term_name(source["kind"], source["year"])
+    if source["kind"] != term["kind"]:
+        raise ApiError(
+            409, "KIND_MISMATCH",
+            f"{source_name} is an {source['kind']} term: its classes (semesters) do not run in "
+            f"{term_svc.term_name(term['kind'], term['year'])}, so there is nothing to copy.",
+        )
+    L = await load(sid, term)
+    ctx = L.ctx
+    old_drafts = await db.fetch(
+        "select * from public.timetable_drafts where term_id = $1 and school_id = $2 and is_primary", source["id"], sid
+    )
+    old_entries = await db.fetch(
+        "select * from public.draft_entries where draft_id = any($1::uuid[])", [d["id"] for d in old_drafts]
+    )
+    by_draft: dict[Any, list] = {}
+    for e in old_entries:
+        by_draft.setdefault(e["draft_id"], []).append(e)
+    created, skipped = [], []
+    async with db.transaction() as conn:
+        for old in old_drafts:
+            cid = old["semester_id"]
+            if cid not in ctx.labels:
+                skipped.append(old["name"])
+                continue
+            mine = [d for d in ctx.drafts.values() if d.semester_id == cid]
+            if len(mine) >= MAX_DRAFTS_PER_CLASS:
+                skipped.append(ctx.labels[cid])
+                continue
+            base = f"From {source_name}"
+            name, n = base, 2
+            while any(d.name.strip().lower() == name.strip().lower() for d in mine):
+                name = f"{base} ({n})"
+                n += 1
+            new_id = uuid.uuid4()
+            await conn.execute(
+                "insert into public.timetable_drafts (id, school_id, term_id, semester_id, name, note, is_primary, created_by) "
+                "values ($1, $2, $3, $4, $5, $6, $7, $8)",
+                new_id, sid, term["id"], cid, name, f"Copied from {source_name} ('{old['name']}')", not mine, uuid.UUID(user.id),
+            )
+            remap: dict[Any, uuid.UUID] = {}
+            for e in by_draft.get(old["id"], []):
+                sub = ctx.subjects.get(e["subject_id"])
+                if sub is None or sub.semester_id != cid:
+                    continue  # the subject was deleted since that term
+                pk = remap.setdefault(e["parallel_key"], uuid.uuid4()) if e["parallel_key"] else None
+                await conn.execute(_INSERT, uuid.uuid4(), new_id, sid, cid, e["subject_id"], e["day"], e["start_period"], e["length"], pk, uuid.UUID(user.id), e["is_locked"])
+            created.append({"semester_id": str(cid), "class_label": ctx.labels[cid], "draft_id": str(new_id), "name": name})
+        if created:
+            await audit.record(conn, user, "create", "timetable_draft", term["id"],
+                               f"Copied {len(created)} primary draft(s) of {source_name} into {term_svc.term_name(term['kind'], term['year'])} as a starting base",
+                               school_id=sid)
+    if not created and not old_drafts:
+        raise ApiError(404, "NOT_FOUND", f"{source_name} has no primary drafts for this school to copy.")
+    return {"created": created, "skipped": skipped, "source": source_name}
 
 
 # ---------------------------------------------------------------------------------------------------- one draft
@@ -489,7 +587,7 @@ async def place(draft_id: str, body: PlaceIn, user: CurrentUser = Depends(requir
     ]
     async with db.transaction() as conn:
         for r in new:
-            await conn.execute(_INSERT, r["id"], d.id, row["school_id"], d.semester_id, r["subject_id"], r["day"], r["start"], r["length"], r["parallel_key"], uuid.UUID(user.id))
+            await conn.execute(_INSERT, r["id"], d.id, row["school_id"], d.semester_id, r["subject_id"], r["day"], r["start"], r["length"], r["parallel_key"], uuid.UUID(user.id), False)
         await _touch(conn, d.id)
         await audit.record(
             conn, user, "create", "draft_placement", key,
@@ -521,6 +619,8 @@ async def move(draft_id: str, key: str, body: MoveIn, user: CurrentUser = Depend
     ctx = L.ctx
     d = ctx.drafts[row["id"]]
     rows = _unit_rows(ctx, d.id, key)
+    if rows[0].is_locked:
+        raise ApiError(409, "LOCKED", "This placement is pinned (semi-automatic mode). Unpin it first, then move it.")
     k = rows[0].key
     res = sch.check_unit(
         ctx, draft_id=d.id, sem_id=d.semester_id, subject_ids=[e.subject_id for e in rows], day=body.day, start=body.start_period,
@@ -555,6 +655,8 @@ async def swap(draft_id: str, body: SwapIn, user: CurrentUser = Depends(require_
     ctx = L.ctx
     d = ctx.drafts[row["id"]]
     a, b = _unit_rows(ctx, d.id, body.placement_a), _unit_rows(ctx, d.id, body.placement_b)
+    if a[0].is_locked or b[0].is_locked:
+        raise ApiError(409, "LOCKED", "A pinned placement cannot be swapped. Unpin it first.")
     if a[0].key == b[0].key:
         raise ApiError(422, "VALIDATION_ERROR", "Choose two different placements.")
     res = sch.swap_check(ctx, d.id, d.semester_id, a, b)
@@ -579,6 +681,35 @@ async def swap(draft_id: str, body: SwapIn, user: CurrentUser = Depends(require_
     return {"warnings": _msgs(res.soft), "detail": _detail_after(L, swapped, d.id)}
 
 
+class LockIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    locked: bool
+
+
+@router.post("/{draft_id}/placements/{key}/lock")
+async def set_lock(draft_id: str, key: str, body: LockIn, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
+    """Pin (or unpin) a placement: a pinned one cannot be moved or removed, and the generator keeps it (semi-automatic mode)."""
+    row, term = await _draft(user, draft_id)
+    L = await load(row["school_id"], term)
+    ctx = L.ctx
+    d = ctx.drafts[row["id"]]
+    rows = _unit_rows(ctx, d.id, key)
+    k = rows[0].key
+    if rows[0].is_locked == body.locked:
+        return {"locked": body.locked, "detail": draft_detail(L, d.id)}
+    async with db.transaction() as conn:
+        await conn.execute("update public.draft_entries set is_locked = $3 where draft_id = $1 and coalesce(parallel_key, id) = $2", d.id, k, body.locked)
+        await _touch(conn, d.id)
+        await audit.record(
+            conn, user, "update", "draft_placement", k,
+            f"{ctx.labels[d.semester_id]}, draft '{d.name}': {'pinned' if body.locked else 'unpinned'} {_names(ctx, [e.subject_id for e in rows])} "
+            f"({DAY_NAMES[rows[0].day]} {sch.span(rows[0].start, rows[0].length)})",
+            school_id=row["school_id"],
+        )
+    locked_entries = [replace(e, is_locked=body.locked) if e.key == k and e.draft_id == d.id else e for e in ctx.entries]
+    return {"locked": body.locked, "detail": _detail_after(L, locked_entries, d.id)}
+
+
 @router.delete("/{draft_id}/placements/{key}")
 async def remove(draft_id: str, key: str, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
     row, term = await _draft(user, draft_id)
@@ -586,6 +717,8 @@ async def remove(draft_id: str, key: str, user: CurrentUser = Depends(require_ro
     ctx = L.ctx
     d = ctx.drafts[row["id"]]
     rows = _unit_rows(ctx, d.id, key)
+    if rows[0].is_locked:
+        raise ApiError(409, "LOCKED", "This placement is pinned (semi-automatic mode). Unpin it first, then remove it.")
     k = rows[0].key
     async with db.transaction() as conn:
         await conn.execute("delete from public.draft_entries where draft_id = $1 and coalesce(parallel_key, id) = $2", d.id, k)
@@ -604,12 +737,16 @@ async def clear(draft_id: str, user: CurrentUser = Depends(require_roles(*ROLES)
     L = await load(row["school_id"], term)
     ctx = L.ctx
     d = ctx.drafts[row["id"]]
-    count = len(sch.units_of(ctx.entries_by_draft.get(d.id, [])))
+    units = sch.units_of(ctx.entries_by_draft.get(d.id, []))
+    kept = sum(1 for rows_ in units.values() if rows_[0].is_locked)
+    count = len(units) - kept
     async with db.transaction() as conn:
-        await conn.execute("delete from public.draft_entries where draft_id = $1", d.id)
+        await conn.execute("delete from public.draft_entries where draft_id = $1 and not is_locked", d.id)
         await _touch(conn, d.id)
-        await audit.record(conn, user, "delete", "draft_placement", d.id, f"{ctx.labels[d.semester_id]}, draft '{d.name}': cleared all {count} placements", school_id=row["school_id"])
-    return {"cleared": count, "detail": _detail_after(L, [e for e in ctx.entries if e.draft_id != d.id], d.id)}
+        await audit.record(conn, user, "delete", "draft_placement", d.id,
+                           f"{ctx.labels[d.semester_id]}, draft '{d.name}': cleared {count} placements" + (f" ({kept} pinned ones kept)" if kept else ""),
+                           school_id=row["school_id"])
+    return {"cleared": count, "kept": kept, "detail": _detail_after(L, [e for e in ctx.entries if e.draft_id != d.id or e.is_locked], d.id)}
 
 
 # ---------------------------------------------------------------------------------------------------- the conflict report

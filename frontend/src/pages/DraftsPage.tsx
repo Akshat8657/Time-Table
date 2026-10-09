@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Copy, LayoutGrid, Pencil, Plus, ShieldAlert, Star, Trash2, TriangleAlert } from 'lucide-react'
+import { GenerationPanel } from '../components/GenerationPanel'
 import { useAuth } from '../auth/AuthProvider'
 import { Alert } from '../components/Alert'
 import { Badge } from '../components/Badge'
@@ -242,6 +243,7 @@ export default function DraftsPage() {
               Open the <Link to={`${prefix}/conflicts`} className="font-semibold underline">Conflict Report</Link> to see exactly where.
             </Alert>
           )}
+          <GenerationPanel onChanged={reload} />
           {data.classes.map((c) => (
             <Panel
               key={c.semester_id}
