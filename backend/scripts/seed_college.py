@@ -1,4 +1,4 @@
-"""Seed the REAL School of IT data (COLLEGE_SEED_DATA.md V3 - FINAL) through the backend API.
+"""Seed the REAL School of IT data (COLLEGE_SEED_DATA.md V4) through the backend API.
 
   python -m scripts.seed_college            seeds everything (safe to run again: it only creates what is missing)
   python -m scripts.seed_college --verify   checks the result against the seed file and prints a report (changes nothing)
@@ -78,13 +78,18 @@ PEOPLE = [
     Person("SRINITA", "Dr. Srinita Bhattacharjee", "srinita.bhattacharjee", "Communication"),
     Person("NIMESH", "Prof. Nimesh Joshi", "nimesh.joshi", "Indian Culture"),
     Person("SUSHANT", "Mr. Sushant Singh", "sushant.singh", "Physical Education"),
-    Person("EXTERNAL", "External Faculty", "external.faculty", "B.Sc. specialization tracks (AI&ML / Cyber)"),
+    # V4: "External Faculty" is TWO different people, one per B.Sc. specialization track
+    Person("EXT_AI", "External Faculty (AI&ML)", "external.faculty.aiml", "AI & Machine Learning track"),
+    Person("EXT_CYBER", "External Faculty (Cyber)", "external.faculty.cyber", "Cyber Security & Forensics track"),
     # visiting faculty: Monday + Tuesday + Wednesday only (hard rule). The seed file gives no weekly-hours limit and the
     # account form requires one -> 18 = three days x six periods, i.e. no limit beyond the three allowed days.
     Person("ANJANA", "Anjana Prajapati", "anjana.prajapati", "AI & Machine Learning, Data Structures & Algorithms", visiting_days=[1, 2, 3]),
     Person("FALGUNI", "Falguni Thakker", "falguni.thakker", "Generative AI, Data Visualization, Digital Image Processing", visiting_days=[1, 2, 3]),
 ]
 VISITING_MAX_HOURS = 18
+# before V4 there was ONE account "External Faculty": it is renamed into the AI&ML account (not orphaned)
+LEGACY_EXTERNAL_EMAIL = f"external.faculty@{EMAIL_DOMAIN}"
+LEGACY_EXTERNAL_KEY = "EXT_AI"
 
 # ---------------------------------------------------------------------------------------------------- subjects (Sections 6-8)
 # (code, name, credits, teacher key | None, flags)   flags: lab | elective | sol | pe ; group = track group name
@@ -96,19 +101,26 @@ def theory_lab(code: str, name: str, credits: int, teacher: str, **kw) -> list[d
     ]
 
 
-def track(label: str, a: tuple[str, str, str], b: tuple[str, str, str], credits: int = 3) -> list[dict]:
-    """Track majors: AI-track and Cyber-track subjects run in the SAME parallel slots (one elective group) + ONE lab for both."""
-    group = f"{label} - Track Majors"
-    return [
-        {"code": f"{label.replace(' ', '')}-{a[0]}", "name": a[1], "credits": credits, "teacher": "EXTERNAL", "elective": True, "group": group},
-        {"code": f"{label.replace(' ', '')}-{b[0]}", "name": b[1], "credits": credits, "teacher": "EXTERNAL", "elective": True, "group": group},
-        {"code": f"{label.replace(' ', '')}-LAB", "name": f"{label} LAB (both tracks)", "credits": 1, "teacher": "EXTERNAL", "lab": True},
-    ]
+def track(label: str, ai: tuple[str, str], cyber: tuple[str, str], credits: int = 3) -> list[dict]:
+    """Track majors (V4): the AI-track and the Cyber-track subject run in the SAME parallel slots (one elective group) and so do
+    their two LABS (a second group; the shared lab of V3 is split per track). Everything of the AI track goes to External Faculty
+    (AI&ML), everything of the Cyber track to External Faculty (Cyber). `ai` / `cyber` = (short code, subject name)."""
+    tag = label.replace(" ", "")
+    majors, labs = f"{label} - Track Majors", f"{label} LAB - Track Labs"
+    rows: list[dict] = []
+    for kind, (short, name), who in (("AI", ai, "EXT_AI"), ("CYBER", cyber, "EXT_CYBER")):
+        rows.append({"code": f"{tag}-{short}", "name": name, "credits": credits, "teacher": who, "elective": True, "group": majors, "track": kind})
+    for kind, (short, name), who in (("AI", ai, "EXT_AI"), ("CYBER", cyber, "EXT_CYBER")):
+        rows.append({
+            "code": f"{tag}-{short}-LAB", "name": f"{name} LAB", "credits": 1, "teacher": who, "lab": True, "elective": True, "group": labs,
+            "track": kind, "legacy_code": f"{tag}-LAB" if kind == "AI" else None,   # the V3 shared lab becomes the AI-track lab
+        })
+    return rows
 
 
 SUBJECTS: dict[str, list[dict]] = {
     "BSC1": [
-        *track("Major 1", ("AIML", "Intro to AI & ML with Python", ""), ("INFOSEC", "Information Security Fundamentals", "")),
+        *track("Major 1", ("AIML", "Intro to AI & ML with Python"), ("INFOSEC", "Information Security Fundamentals")),
         *theory_lab("MAJ2", "Data Structures & Algorithms using C", 3, "ANJANA"),
         *theory_lab("MIN1", "Fundamentals of DBMS", 3, "JUHI"),
         {"code": "MD1", "name": "Fundamentals of Mathematics", "credits": 2, "teacher": "PAPRI"},
@@ -119,7 +131,7 @@ SUBJECTS: dict[str, list[dict]] = {
         {"code": "PE1", "name": "PE, Sports & Yoga - I", "credits": 1, "teacher": "SUSHANT", "pe": True},
     ],
     "BSC3": [
-        *track("Major 5", ("DL", "Deep Learning", ""), ("ITADS", "IT Application & Data Security", "")),
+        *track("Major 5", ("DL", "Deep Learning"), ("ITADS", "IT Application & Data Security")),
         *theory_lab("MAJ6", "OOP using JAVA", 3, "CHIRAG"),
         {"code": "MAJ7", "name": "Operating Systems", "credits": 4, "teacher": "JUHI"},
         {"code": "SEC3", "name": "Data Visualization", "credits": 1, "teacher": "FALGUNI"},
@@ -131,7 +143,7 @@ SUBJECTS: dict[str, list[dict]] = {
         {"code": "PE3", "name": "PE, Sports & Yoga - III", "credits": 1, "teacher": "SUSHANT", "pe": True},
     ],
     "BSC5": [
-        *track("Major 11", ("PRAD", "Pattern Recognition & Anomaly Detection / LLM Dev & Deployment", ""), ("DF", "Digital Forensics", "")),
+        *track("Major 11", ("PRAD", "Pattern Recognition & Anomaly Detection / LLM Dev & Deployment"), ("DF", "Digital Forensics")),
         *theory_lab("MAJ12", "Blockchain Technology", 3, "SUNIL"),
         *theory_lab("MAJ13", "Full Stack Development", 3, "CHIRAG"),
         {"code": "MIN4", "name": "Data Governance & Privacy Engineering", "credits": 4, "teacher": "SHREYA"},
@@ -141,7 +153,7 @@ SUBJECTS: dict[str, list[dict]] = {
         {"code": "VAC5", "name": "Foundation of Indian Culture - I", "credits": 2, "teacher": "NIMESH"},
     ],
     "BSC7": [
-        *track("Major 17", ("PRAD", "Pattern Recognition & Anomaly Detection", ""), ("CWAS", "Cryptography & Web App Security", "")),
+        *track("Major 17", ("PRAD", "Pattern Recognition & Anomaly Detection"), ("CWAS", "Cryptography & Web App Security")),
         *theory_lab("MAJ18", "Big Data Analytics", 3, "SUNIL"),
         *theory_lab("MAJ19", "Digital Image Processing", 3, "FALGUNI"),
         {"code": "MIN7", "name": "Introduction to Quantum Computing", "credits": 4, "teacher": "PAPRI", "co_teacher": "MAITRI"},
@@ -308,6 +320,13 @@ class Seeder:
     async def teachers(self) -> None:
         have = {u["email"]: u for u in (await self.api.get(f"/api/users?school_id={self.school_id}&status=all"))["users"]}
         new_file = not ACCOUNTS_FILE.exists()
+        legacy = have.get(LEGACY_EXTERNAL_EMAIL)
+        wanted_ai = next(p for p in PEOPLE if p.key == LEGACY_EXTERNAL_KEY)
+        if legacy is not None and f"{wanted_ai.email}@{EMAIL_DOMAIN}" not in have:
+            await self.api.patch(f"/api/users/{legacy['id']}", {"full_name": wanted_ai.name, "email": f"{wanted_ai.email}@{EMAIL_DOMAIN}", "specialization": wanted_ai.specialization})
+            have = {u["email"]: u for u in (await self.api.get(f"/api/users?school_id={self.school_id}&status=all"))["users"]}
+            self._rename_in_accounts_file(legacy["full_name"], LEGACY_EXTERNAL_EMAIL, wanted_ai)
+            log(f"  V4: the single 'External Faculty' account is now '{wanted_ai.name}' (same person row, same temporary password)")
         with ACCOUNTS_FILE.open("a", encoding="utf-8") as out:
             if new_file:
                 out.write(
@@ -332,12 +351,24 @@ class Seeder:
                 self.created_accounts += 1
         log(f"  teacher accounts: {len(PEOPLE)} in total, {self.created_accounts} created now (passwords -> seed_accounts.txt)")
 
+    @staticmethod
+    def _rename_in_accounts_file(old_name: str, old_email: str, person: Person) -> None:
+        """seed_accounts.txt: the renamed account keeps its temporary password, only name + email change (nothing is printed)."""
+        if not ACCOUNTS_FILE.exists():
+            return
+        lines = ACCOUNTS_FILE.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            parts = [x.strip() for x in line.split("|")]
+            if len(parts) == 4 and parts[0] == old_name and parts[2] == old_email:
+                lines[i] = f"{person.name} | {parts[1]} | {person.email}@{EMAIL_DOMAIN} | {parts[3]}"
+        ACCOUNTS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     # 5) subjects + elective groups ------------------------------------------------------------------------------------------
     async def subjects_and_groups(self) -> None:
         existing = (await self.api.get(f"/api/subjects?school_id={self.school_id}"))["subjects"]
         have = {(s["semester_id"], s["code"]): s["id"] for s in existing}
         groups = {(g["semester_id"], g["name"]): g["id"] for g in (await self.api.get(f"/api/subjects/groups?school_id={self.school_id}"))["groups"]}
-        created = 0
+        created = renamed = 0
         for key, rows in SUBJECTS.items():
             sem_id = self.sem[key]
             for row in rows:
@@ -345,11 +376,18 @@ class Seeder:
                 if (sem_id, code) in have:
                     self.subjects[(key, row["code"])] = have[(sem_id, code)]
                     continue
+                legacy = have.get((sem_id, f"{key}-{row['legacy_code']}")) if row.get("legacy_code") else None
                 gid = None
                 if row.get("group"):
                     if (sem_id, row["group"]) not in groups:
                         groups[(sem_id, row["group"])] = (await self.api.post("/api/subjects/groups", {"semester_id": sem_id, "name": row["group"]}))["id"]
                     gid = groups[(sem_id, row["group"])]
+                if legacy is not None:  # V3 had ONE shared lab "(both tracks)": it becomes the AI-track lab (renamed, not orphaned)
+                    await self.api.patch(f"/api/subjects/{legacy}", {"name": row["name"], "code": code, "is_elective": True, "elective_group_id": gid})
+                    have[(sem_id, code)] = legacy
+                    self.subjects[(key, row["code"])] = legacy
+                    renamed += 1
+                    continue
                 credits = row["credits"]
                 special = "SOL" if row.get("sol") else "PE" if row.get("pe") else None
                 body = {
@@ -362,7 +400,7 @@ class Seeder:
                 res = await self.api.post("/api/subjects", body)
                 self.subjects[(key, row["code"])] = res["id"]
                 created += 1
-        log(f"  subjects: {sum(len(v) for v in SUBJECTS.values())} in 8 classes ({created} created now), elective groups: {len(groups)}")
+        log(f"  subjects: {sum(len(v) for v in SUBJECTS.values())} in 8 classes ({created} created now, {renamed} shared labs split per track), elective groups: {len(groups)}")
 
     # 6) what each teacher can teach + assignments ---------------------------------------------------------------------------
     async def assignments(self) -> None:
@@ -372,9 +410,12 @@ class Seeder:
                 for t in (row.get("teacher"), row.get("co_teacher")):
                     if t:
                         can[t].add(self.subjects[(key, row["code"])])
+        # 1) everybody may teach what they are going to be assigned (existing entries stay for now: assigned subjects are protected)
         for p in PEOPLE:
-            await self.api.patch(f"/api/users/{self.people[p.key]}", {"subject_ids": sorted(can[p.key])})
-        log("  'subjects they can teach' filled for every teacher")
+            now = set((await self.api.get(f"/api/users/{self.people[p.key]}")).get("subject_ids", []))
+            if not can[p.key] <= now:
+                await self.api.patch(f"/api/users/{self.people[p.key]}", {"subject_ids": sorted(now | can[p.key])})
+        # 2) assign / move
         current = {s["id"]: s for s in (await self.api.get(f"/api/assignments?school_id={self.school_id}"))["subjects"]}
         done = skipped = 0
         for key, rows in SUBJECTS.items():
@@ -388,7 +429,12 @@ class Seeder:
                     continue
                 await self.api.put("/api/assignments", {"subject_id": sid, "teacher_id": t, "co_teacher_id": co})
                 done += 1
-        log(f"  assignments: {done} made now, {skipped} already there (AEC 3 of B.Sc. Sem 3 stays unassigned on purpose)")
+        # 3) now every list is trimmed to exactly what the person teaches
+        for p in PEOPLE:
+            now = set((await self.api.get(f"/api/users/{self.people[p.key]}")).get("subject_ids", []))
+            if now != can[p.key]:
+                await self.api.patch(f"/api/users/{self.people[p.key]}", {"subject_ids": sorted(can[p.key])})
+        log(f"  'subjects they can teach' = exactly the assigned subjects; assignments: {done} made / moved now, {skipped} already there (AEC 3 of B.Sc. Sem 3 stays unassigned on purpose)")
 
     # 7) no PE / SOL -----------------------------------------------------------------------------------------------------------
     async def no_pe_sol(self) -> None:
@@ -485,7 +531,8 @@ async def verify(api: Api) -> int:
     log("\n== teachers ==")
     users = (await api.get(f"/api/users?school_id={sid}&status=all"))["users"]
     by_email = {u["email"]: u for u in users}
-    rep.check(len(users) == len(PEOPLE), f"{len(PEOPLE)} accounts (1 HOD + 13 regular + 2 visiting)", f"found {len(users)}")
+    rep.check(len(users) == len(PEOPLE), f"{len(PEOPLE)} accounts (1 HOD + 14 regular + 2 visiting)", f"found {len(users)}")
+    rep.check(not any(u["full_name"] == "External Faculty" or u["email"] == LEGACY_EXTERNAL_EMAIL for u in users), "the single 'External Faculty' account is gone (split into AI&ML and Cyber)")
     rep.check(not any("dixit" in u["full_name"].lower() or "dixit" in u["email"] for u in users), "NO account for Prof. Anurag Dixit")
     rep.check(all(u["email"].endswith("@school-it.test") for u in users), "all emails are dummy @school-it.test")
     hod = [u for u in users if u["role"] == "hod"]
@@ -513,9 +560,24 @@ async def verify(api: Api) -> int:
     labs_bad = [s for s in subs if s["is_lab"] and (s["credits"] != 1 or s["semester_hours"] != 30)]
     rep.check(not labs_bad, "every lab is 1 credit (one double block a week)")
     groups = (await api.get(f"/api/subjects/groups?school_id={sid}"))["groups"]
-    rep.check(len(groups) == 4 and all(len(g["members"]) == 2 and not g["warnings"] for g in groups), "4 B.Sc. track groups (AI&ML || Cyber), 2 parallel majors each, no credit warnings", str([(g["class_label"], g["name"]) for g in groups]))
-    ext = [s for s in subs if s["is_elective"] and s["elective_group_id"]]
-    rep.check(all(s["teacher_name"] == "External Faculty" for s in ext), "all track majors are taught by External Faculty")
+    rep.check(len(groups) == 8 and all(len(g["members"]) == 2 and not g["warnings"] for g in groups),
+              "8 B.Sc. track groups (4 classes x majors + labs, AI&ML || Cyber), 2 parallel options each, no credit warnings", str(len(groups)))
+    # V4: every AI-track Major + Lab -> External Faculty (AI&ML), every Cyber-track Major + Lab -> External Faculty (Cyber)
+    track_rows = [(k, r) for k, rows in SUBJECTS.items() for r in rows if r.get("track")]
+    by_code = {s["code"]: s for s in subs}
+    for want_track, who in (("AI", "External Faculty (AI&ML)"), ("CYBER", "External Faculty (Cyber)")):
+        mine = [(k, r) for k, r in track_rows if r["track"] == want_track]
+        ok = all(by_code[f"{k}-{r['code']}"]["teacher_name"] == who and by_code[f"{k}-{r['code']}"]["co_teacher_name"] is None for k, r in mine)
+        rep.check(ok and len(mine) == 8, f"all {len(mine)} {want_track}-track Majors + Labs (4 classes) -> {who}", str(sorted({by_code[f'{k}-{r['code']}']['teacher_name'] for k, r in mine})))
+    for key in ("EXT_AI", "EXT_CYBER"):
+        p = next(p for p in PEOPLE if p.key == key)
+        u = by_email[f"{p.email}@{EMAIL_DOMAIN}"]
+        want_ids = {s["id"] for s in subs if s["teacher_id"] == u["id"]}
+        got = set((await api.get(f"/api/users/{u['id']}"))["subject_ids"])
+        rep.check(got == want_ids and len(got) == 8 and u["specialization"] == p.specialization, f"{p.name}: subjects they can teach = the 8 assigned ones; specialization '{u['specialization']}'")
+    real_ids = {u["id"] for u in users if u["is_active"]}
+    rep.check(all(s["teacher_id"] in real_ids for s in subs if s["teacher_id"]) and all(s["co_teacher_id"] in real_ids for s in subs if s["co_teacher_id"]),
+              "no subject points at a missing / deactivated teacher")
     pesol = [s for s in subs if s["special_kind"]]
     rep.check(len(pesol) == 12 and all(s["credits"] in (1, 2) for s in pesol), "PE / SOL subjects: 6 PE + 6 SOL", f"found {len(pesol)}")
     rep.check(not any(s["special_kind"] for s in subs if s["semester_id"] in (sem["BSC5"], sem["BSC7"])), "B.Sc. Sem 5 and Sem 7 have no PE / SOL subjects")

@@ -5,7 +5,7 @@
 > **This is V3 — FINAL. Every earlier open question is answered. There are NO ❓ left. Do not ask the user again; seed exactly as written here.**
 > Teacher accounts: use dummy emails like firstname.lastname@school-it.test — NO real emails. Real emails can be set later by the college.
 
-Last updated: 09 Oct 2026 (V3 — FINAL)
+Last updated: 09 Oct 2026 (V4 — External Faculty CORRECTED: it is TWO different people, one per track. Split the single "External Faculty" account into "External Faculty (AI&ML)" and "External Faculty (Cyber)": every AI-track Major (+its Lab) goes to the AI&ML account, every Cyber-track Major (+its Lab) to the Cyber account, in all 4 B.Sc. classes. Wherever this file says "External Faculty" in a subjects table, read it as: AI-track option → External Faculty (AI&ML), Cyber-track option → External Faculty (Cyber), and the shared track-group LAB splits the same way per track. Everything else unchanged from V3.)
 
 ---
 
@@ -72,7 +72,8 @@ Last updated: 09 Oct 2026 (V3 — FINAL)
 | Dr. Srinita Bhattacharjee | Communication | Communication Skills |
 | Prof. Nimesh Joshi | Indian Culture | Foundation of Indian Culture I |
 | Mr. Sushant Singh | Physical Education | PE, Sports & Yoga (ALL semesters, B.Sc. + M.Sc.) |
-| **External Faculty** | B.Sc. specialization tracks (AI&ML / Cyber) | ONE account named "External Faculty" for all B.Sc. specialization-track Majors (+Labs) |
+| **External Faculty (AI&ML)** | AI & Machine Learning track | All AI-track Majors (+Labs) in B.Sc. Sem 1, 3, 5, 7 |
+| **External Faculty (Cyber)** | Cyber Security & Forensics track | All Cyber-track Majors (+Labs) in B.Sc. Sem 1, 3, 5, 7 |
 
 ### Visiting Faculty (hard day limits) — CONFIRMED
 | Name | Teaches | Allowed days |
