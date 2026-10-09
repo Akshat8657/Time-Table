@@ -32,6 +32,9 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
   'my-timetable': lazy(() => import('./pages/MyTimetablePage')),
   'my-subjects': lazy(() => import('./pages/MySubjectsPage')),
   notifications: lazy(() => import('./pages/NotificationsPage')),
+  substitutions: lazy(() => import('./pages/SubstitutionsPage')),
+  'absent-leave': lazy(() => import('./pages/AbsentLeavePage')),
+  offers: lazy(() => import('./pages/OffersPage')),
 }
 
 // the weekly grid editor of one draft (a sub-page of "Generate Timetable")
@@ -80,6 +83,15 @@ const MY_SCREENS: Record<string, Partial<Record<Role, string>>> = {
   timetable: { teacher: '/teacher/timetable', hod: '/hod/my-schedule/timetable' },
   subjects: { teacher: '/teacher/subjects', hod: '/hod/my-schedule/subjects' },
   notifications: { teacher: '/teacher/notifications', hod: '/hod/notifications', admin: '/admin/notifications' },
+  offers: { teacher: '/teacher/offers', hod: '/hod/my-schedule/offers' },
+  'absent-leave': { teacher: '/teacher/absent-leave', hod: '/hod/my-schedule/absent-leave' },
+}
+
+const CONSOLE: Partial<Record<Role, string>> = { hod: '/hod/substitutions', admin: '/admin/substitutions' }
+
+function ConsoleRedirect() {
+  const { user } = useAuth()
+  return <Navigate to={(user && CONSOLE[user.role]) ?? (user ? HOME[user.role] : '/')} replace />
 }
 
 function MyRedirect() {
@@ -115,6 +127,14 @@ export default function App() {
           element={
             <RequireAuth>
               <MyRedirect />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/substitutions"
+          element={
+            <RequireAuth>
+              <ConsoleRedirect />
             </RequireAuth>
           }
         />

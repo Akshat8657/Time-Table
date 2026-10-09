@@ -92,9 +92,12 @@ def _row_subject(data: ViewData, r: pub.PubRow) -> uuid.UUID | None:
 def compute_hours(
     data: ViewData, today: date, only_sems: Iterable[uuid.UUID] | None = None,
     assigned: dict[uuid.UUID, tuple[uuid.UUID | None, uuid.UUID | None]] | None = None,
+    cancelled: set[tuple[uuid.UUID, date, int]] | None = None,
 ) -> dict[uuid.UUID, list[SubjectHours]]:
     """Per running class: every subject with its required / deliverable / delivered hours.
-    `assigned` (optional) names the teacher of a subject that is not in the published timetable (yet)."""
+    `assigned` (optional) names the teacher of a subject that is not in the published timetable (yet).
+    `cancelled` (Phase 5) = (semester_id, date, start_period) slots cancelled by a one-day adjustment - counted as lost."""
+    cancelled = cancelled or set()
     wanted = set(only_sems) if only_sems is not None else set(data.sems)
     extra_by_subject: dict[uuid.UUID, list[ExtraRow]] = defaultdict(list)
     for x in data.extras:
@@ -137,7 +140,7 @@ def compute_hours(
                         if day != wd:
                             continue
                         a, b = data.period_minutes(start, length)
-                        if data.calendar.blocking(data.school_id, sem_id, d, a, b) is not None:
+                        if data.calendar.blocking(data.school_id, sem_id, d, a, b) is not None or (sem_id, d, start) in cancelled:
                             h.lost += length
                         else:
                             h.scheduled += length

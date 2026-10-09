@@ -15,6 +15,7 @@ from ..validation import DAY_NAMES, DAY_SHORT
 from . import calindex
 from . import publishing as pub
 from . import timing as timing_svc
+from .changes import DayChanges
 from .viewdata import ExtraRow, ViewData
 
 IST = timezone(timedelta(hours=5, minutes=30))  # India has no daylight saving: a fixed offset is exact
@@ -92,9 +93,13 @@ def build_cells(
     day: int | None = None,
     dates: dict[int, date] | None = None,
     with_extras: bool = False,
+    change: DayChanges | None = None,
 ) -> list[dict[str, Any]]:
     """The cells of the week.  across_classes=True merges a combined session of several classes into one cell (teacher /
-    master views); False keeps one cell per class (class view)."""
+    master views); False keeps one cell per class (class view).
+
+    `change` (Phase 5) overlays that date's one-off changes: a cancelled / moved lecture, and the substitute when the
+    teacher is absent.  With `change=None` the result is exactly the published Phase 4 timetable."""
     groups: dict[tuple, list[pub.PubRow]] = {}
     for r in rows:
         if sem_ids is not None and r.semester_id not in sem_ids:
@@ -132,6 +137,10 @@ def build_cells(
         cells.append(built)
     if with_extras and dates:
         cells += extra_cells(data, dates, teacher_id=teacher_id, sem_ids=sem_ids, day=day, across_classes=across_classes)
+    if change is not None and dates:
+        for c in cells:
+            apply_change(data, change, c, teacher_id)
+        cells += covering_cells(data, change, dates, teacher_id=teacher_id, sem_ids=sem_ids, day=day)
     cells.sort(key=lambda c: (c["day"], c["start_period"], c["classes"][0]["label"] if c["classes"] else ""))
     return cells
 
@@ -172,12 +181,109 @@ def extra_cells(
     return out
 
 
+# ---------------------------------------------------------------------------------------------------- Phase 5 overlay
+def apply_change(data: ViewData, change: DayChanges, cell: dict[str, Any], viewer_id: uuid.UUID | None) -> None:
+    """Overlay one date's one-off changes onto a cell: a substitute for an absent teacher, and a move / cancel."""
+    if not cell.get("date"):
+        return
+    d = date.fromisoformat(cell["date"])
+    sems = [uuid.UUID(c["id"]) for c in cell["classes"]]
+    base_start = cell["start_period"]
+    cell_teachers: set[uuid.UUID] = set()
+    for it in cell["items"]:
+        for k in ("teacher_id", "co_teacher_id"):
+            if it.get(k):
+                cell_teachers.add(uuid.UUID(it[k]))
+    subs = change.subs_at(d, base_start, cell_teachers)
+    if subs:
+        summary: list[dict[str, Any]] = []
+        for s in subs:
+            abs_name = data.person_name(s.absent_teacher_id)
+            sub_name = data.person_name(s.substitute_id) if s.substitute_id else None
+            for it in cell["items"]:
+                if str(s.absent_teacher_id) in {it.get("teacher_id"), it.get("co_teacher_id")}:
+                    it["absent"] = True
+                    it["absent_teacher_name"] = abs_name
+                    if s.status == "filled" and sub_name:
+                        it["substitute_id"], it["substitute_name"] = str(s.substitute_id), sub_name
+            summary.append({
+                "id": str(s.id), "status": s.status, "absent_id": str(s.absent_teacher_id), "absent_name": abs_name,
+                "substitute_id": str(s.substitute_id) if s.substitute_id else None, "substitute_name": sub_name,
+                "subjects": [data.subjects[x].name for x in s.subject_ids if x in data.subjects] or [s.label],
+            })
+        cell["substitutions"] = summary
+        if viewer_id is not None and viewer_id in cell_teachers and change.is_absent(viewer_id, d):
+            cell["mine_absent"] = True
+    adj = change.adjustment_for(d, sems, base_start)
+    if adj is not None:
+        if adj.kind == "cancel":
+            cell["status"], cell["status_note"] = "cancelled", adj.reason or "Cancelled for this day"
+            cell["adjusted"] = {"kind": "cancel", "reason": adj.reason}
+        elif adj.kind == "move" and adj.new_start:
+            cell["adjusted"] = {
+                "kind": "move", "from": base_start, "to": adj.new_start, "reason": adj.reason, "swap": adj.swap_group is not None,
+            }
+            cell["moved_from"] = base_start
+            cell["moved_from_time"] = timing_svc.time_range(data.grid, base_start, cell["length"])
+            cell["start_period"] = adj.new_start
+            cell["time"] = timing_svc.time_range(data.grid, adj.new_start, cell["length"])
+
+
+def covering_cells(
+    data: ViewData, change: DayChanges, dates: dict[int, date], *,
+    teacher_id: uuid.UUID | None, sem_ids: set[uuid.UUID] | None, day: int | None,
+) -> list[dict[str, Any]]:
+    """Extra cells for a teacher who is COVERING a lecture as a substitute (it is not in their own published rows)."""
+    if teacher_id is None:
+        return []
+    by_day = {d: n for n, d in dates.items()}
+    out: list[dict[str, Any]] = []
+    for s in change.subs:
+        if s.substitute_id != teacher_id or s.status != "filled" or s.day_date not in by_day:
+            continue
+        n = by_day[s.day_date]
+        if (day is not None and n != day) or (sem_ids is not None and not (set(s.semester_ids) & sem_ids)):
+            continue
+        items: list[dict[str, Any]] = []
+        for sid in sorted(s.subject_ids, key=lambda x: data.subjects[x].name if x in data.subjects else ""):
+            si = data.subjects.get(sid)
+            items.append({
+                "subject_id": str(sid), "title": si.name if si else s.label, "code": si.code if si else None,
+                "is_lab": bool(si and si.is_lab), "teacher_id": str(teacher_id), "teacher_name": data.person_name(teacher_id),
+                "co_teacher_id": None, "co_teacher_name": None,
+            })
+        if not items:
+            items = [{"subject_id": None, "title": s.label, "code": None, "is_lab": False,
+                      "teacher_id": str(teacher_id), "teacher_name": data.person_name(teacher_id), "co_teacher_id": None, "co_teacher_name": None}]
+        classes = [{"id": str(x), "label": data.sems[x].label} for x in s.semester_ids if x in data.sems]
+        out.append({
+            "key": f"sub:{s.id}", "kind": "substitution", "fixed_kind": None, "day": n, "start_period": s.start,
+            "length": s.length, "items": items, "classes": classes, "combined": len(classes) > 1, "combined_with": None,
+            "parallel": len(items) > 1, "is_lab": any(i["is_lab"] for i in items), "date": s.day_date.isoformat(),
+            "time": timing_svc.time_range(data.grid, s.start, s.length), "day_name": DAY_SHORT.get(n),
+            "status": None, "status_note": None, "extra": None,
+            "substitution": {"for_id": str(s.absent_teacher_id), "for_name": data.person_name(s.absent_teacher_id)},
+        })
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------- summaries
 def stats_of(cells: list[dict[str, Any]]) -> dict[str, int]:
     live = [c for c in cells if c["status"] is None]
     return {
         "lectures": len(live), "hours": sum(c["length"] for c in live), "cancelled": len(cells) - len(live),
         "extra": sum(1 for c in live if c["kind"] == "extra"),
+    }
+
+
+def day_extra_stats(cells: list[dict[str, Any]]) -> dict[str, int]:
+    """Phase 5 counts for a day view (added alongside stats_of, which keeps its original four keys)."""
+    return {
+        "covering": sum(1 for c in cells if c["kind"] == "substitution"),
+        "my_absent": sum(1 for c in cells if c.get("mine_absent")),
+        "needs_sub": sum(1 for c in cells for s in c.get("substitutions", []) if s["status"] in ("open", "offering", "unfilled")),
+        "cancelled_today": sum(1 for c in cells if (c.get("adjusted") or {}).get("kind") == "cancel"),
+        "moved": sum(1 for c in cells if (c.get("adjusted") or {}).get("kind") == "move"),
     }
 
 

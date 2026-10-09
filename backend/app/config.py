@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:admin@timetablepro.example"
 
+    # --- Substitutions: how long (minutes) an auto popup-offer round waits before it alerts the HOD to assign manually.
+    # Each offer also always expires at the lecture's start time, whichever comes first.
+    substitution_offer_minutes: int = 10
+
     # ------------------------------------------------------------------ validators
     @field_validator("supabase_url", mode="before")
     @classmethod

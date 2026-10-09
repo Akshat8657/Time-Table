@@ -6,6 +6,7 @@ import { Button } from '../components/Button'
 import { Logo } from '../components/Logo'
 import { NotificationBell } from '../components/NotificationBell'
 import { Skeleton } from '../components/Panel'
+import { OfferPopup } from '../components/OfferPopup'
 import { PushPrompt } from '../components/PushAlerts'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { ToastProvider } from '../components/Toast'
@@ -13,6 +14,7 @@ import { useConsent } from '../consent/ConsentProvider'
 import { COOKIE_NAMES, storeConvenience } from '../lib/cookies'
 import { initials } from '../lib/format'
 import { NotificationsProvider } from '../lib/notifications'
+import { OffersProvider } from '../lib/offers'
 import { findItem, NAV, ROLE_LABEL, ROLE_PREFIX, type NavItem } from '../lib/nav'
 import { SchoolScopeProvider } from '../lib/scope'
 import { TermProvider, useTerm } from '../lib/term'
@@ -160,7 +162,9 @@ export function AppShell() {
       <TermProvider>
         <SchoolScopeProvider>
           <NotificationsProvider>
-            <ShellLayout />
+            <OffersProvider>
+              <ShellLayout />
+            </OffersProvider>
           </NotificationsProvider>
         </SchoolScopeProvider>
       </TermProvider>
@@ -262,6 +266,7 @@ function ShellLayout() {
             >
               <Outlet />
             </Suspense>
+            <OfferPopup />
           </div>
         </main>
       </div>

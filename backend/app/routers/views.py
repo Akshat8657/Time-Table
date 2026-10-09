@@ -21,6 +21,7 @@ from ..scope import as_uuid, load_in_scope, resolve_school
 from ..security.deps import CurrentUser, require_roles
 from ..services import terms as term_svc
 from ..services import views as vw
+from ..services.changes import DayChanges, load_changes
 from ..services.viewdata import ViewData, load_view_data
 from ..validation import DAY_NAMES
 
@@ -34,6 +35,10 @@ async def _data(school_id: uuid.UUID, window: tuple[date, date]) -> ViewData | N
     if term is None:
         return None
     return await load_view_data(school_id, term, window)
+
+
+async def _changes(data: ViewData, window: tuple[date, date]) -> DayChanges:
+    return await load_changes(data.school_id, data.term["id"], window)
 
 
 def _no_term() -> dict[str, Any]:
@@ -87,8 +92,9 @@ async def my_today(on: date | None = None, user: CurrentUser = Depends(require_r
     me = uuid.UUID(user.id)
     weekday = d.isoweekday()
     working = weekday <= min(6, data.days_per_week)
+    change = await _changes(data, (d, d))
     cells = (
-        vw.build_cells(data, data.rows_of_teacher(me), across_classes=True, teacher_id=me, day=weekday, dates={weekday: d}, with_extras=True)
+        vw.build_cells(data, data.rows_of_teacher(me), across_classes=True, teacher_id=me, day=weekday, dates={weekday: d}, with_extras=True, change=change)
         if working else []
     )
     now = datetime.now(vw.IST)
@@ -97,7 +103,7 @@ async def my_today(on: date | None = None, user: CurrentUser = Depends(require_r
     current = None
     if d == vw.today_ist():
         for c in cells:
-            if c["status"] is not None:
+            if c["status"] is not None or c.get("mine_absent"):
                 continue
             a, b = data.period_minutes(c["start_period"], c["length"])
             if a <= now_min < b and current is None:
@@ -108,7 +114,7 @@ async def my_today(on: date | None = None, user: CurrentUser = Depends(require_r
     return {
         "term": _term_out(data), **_published_info(data), "date": d.isoformat(), "weekday": weekday, "weekday_name": DAY_NAMES.get(weekday, "Sunday"),
         "is_today": d == vw.today_ist(), "is_working_day": working, "banners": vw.banners_for(data, d), "grid": _grid(data),
-        "cells": cells, "stats": vw.stats_of(cells), "current_key": current, "next_key": nxt,
+        "cells": cells, "stats": vw.stats_of(cells), "day_stats": vw.day_extra_stats(cells), "current_key": current, "next_key": nxt,
         "week_lectures": len(weekly),
     }
 
@@ -122,11 +128,12 @@ async def my_week(week_of: date | None = None, user: CurrentUser = Depends(requi
         return _no_term()
     me = uuid.UUID(user.id)
     dates = vw.week_dates(monday, data.days_per_week)
-    cells = vw.build_cells(data, data.rows_of_teacher(me), across_classes=True, teacher_id=me, dates=dates, with_extras=True)
+    change = await _changes(data, (monday, monday + timedelta(days=6)))
+    cells = vw.build_cells(data, data.rows_of_teacher(me), across_classes=True, teacher_id=me, dates=dates, with_extras=True, change=change)
     mentioned = {uuid.UUID(c["id"]) for cell in cells for c in cell["classes"]}
     return {
         "term": _term_out(data), **_published_info(data, mentioned or None), "monday": monday.isoformat(), "days": vw.day_headers(data, dates),
-        "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells), "owner": {"id": user.id, "name": user.full_name},
+        "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells), "day_stats": vw.day_extra_stats(cells), "owner": {"id": user.id, "name": user.full_name},
     }
 
 
@@ -171,10 +178,11 @@ async def class_week(semester_id: str, week_of: date | None = None, user: Curren
     if sem["id"] not in data.sems:
         raise ApiError(409, "SEMESTER_NOT_ACTIVE", "That class is not running in the active term.")
     dates = vw.week_dates(monday, data.days_per_week)
-    cells = vw.build_cells(data, data.rows_of_class(sem["id"]), across_classes=False, dates=dates, with_extras=True, sem_ids={sem["id"]})
+    change = await _changes(data, (monday, monday + timedelta(days=6)))
+    cells = vw.build_cells(data, data.rows_of_class(sem["id"]), across_classes=False, dates=dates, with_extras=True, sem_ids={sem["id"]}, change=change)
     return {
         "term": _term_out(data), **_published_info(data, {sem["id"]}), "monday": monday.isoformat(),
-        "days": vw.day_headers(data, dates, sem["id"]), "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells),
+        "days": vw.day_headers(data, dates, sem["id"]), "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells), "day_stats": vw.day_extra_stats(cells),
         "owner": {"id": str(sem["id"]), "name": data.sems[sem["id"]].label, "school": data.school_name},
         "off_days": vw.day_off_map(data, [sem["id"]]),
     }
@@ -193,11 +201,12 @@ async def teacher_week(teacher_id: str, week_of: date | None = None, user: Curre
     if data is None:
         return _no_term()
     dates = vw.week_dates(monday, data.days_per_week)
-    cells = vw.build_cells(data, data.rows_of_teacher(tid), across_classes=True, teacher_id=tid, dates=dates, with_extras=True)
+    change = await _changes(data, (monday, monday + timedelta(days=6)))
+    cells = vw.build_cells(data, data.rows_of_teacher(tid), across_classes=True, teacher_id=tid, dates=dates, with_extras=True, change=change)
     mentioned = {uuid.UUID(c["id"]) for cell in cells for c in cell["classes"]}
     return {
         "term": _term_out(data), **_published_info(data, mentioned or None), "monday": monday.isoformat(), "days": vw.day_headers(data, dates),
-        "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells),
+        "grid": _grid(data), "cells": cells, "stats": vw.stats_of(cells), "day_stats": vw.day_extra_stats(cells),
         "owner": {"id": str(tid), "name": row["full_name"], "school": data.school_name},
     }
 
@@ -239,15 +248,16 @@ async def master(
     if tid is not None and tid not in data.people:
         raise ApiError(404, "NOT_FOUND", "That teacher was not found in this school.")
     rows = data.rows_of_teacher(tid) if tid else data.rows
+    change = await _changes(data, (monday, monday + timedelta(days=6)))
     cells = [] if day == 0 else vw.build_cells(
-        data, rows, across_classes=True, teacher_id=tid, sem_ids=sems, day=day, dates=dates, with_extras=True
+        data, rows, across_classes=True, teacher_id=tid, sem_ids=sems, day=day, dates=dates, with_extras=True, change=change
     )
     shown = [data.sems[s] for s in sorted(sems, key=lambda x: data.sems[x].label)]
     return {
         "term": _term_out(data), **_published_info(data), "scope": scope, "date": d.isoformat() if d else None, "monday": monday.isoformat(),
         "day": day, "days": vw.day_headers(data, dates), "grid": _grid(data),
         "classes": [{"id": str(s.id), "label": s.label, "published": s.id in data.pubs} for s in shown],
-        "cells": cells, "stats": vw.stats_of(cells), "off_days": vw.day_off_map(data, [s.id for s in shown]),
+        "cells": cells, "stats": vw.stats_of(cells), "day_stats": vw.day_extra_stats(cells), "off_days": vw.day_off_map(data, [s.id for s in shown]),
         "filters": {"semester_id": semester_id, "teacher_id": teacher_id, "day": day},
         "school": {"id": str(data.school_id), "name": data.school_name},
     }

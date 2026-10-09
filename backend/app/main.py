@@ -27,8 +27,8 @@ from .errors import ApiError
 from .migrations import pending_versions
 from .routers import auth as auth_routes
 from .routers import (
-    assignments, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, notifications, profile, publish,
-    structure, subjects, terms, timing, users, views,
+    absence, adjust, assignments, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, leave,
+    notifications, profile, publish, structure, subjects, subs, terms, timing, users, views,
 )
 from .security import sessions
 from .security.jwt_verify import TokenVerifier
@@ -93,6 +93,24 @@ async def _keepalive() -> None:
             log.exception("Database keep-alive failed")
 
 
+async def _substitution_sweep() -> None:
+    """Every ~60 s: close auto-offer rounds whose deadline (or the lecture start) has passed and alert the HOD to assign."""
+    from datetime import datetime, timezone
+
+    from .services import subflow
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            closed = await subflow.sweep(datetime.now(timezone.utc))
+            if closed:
+                log.info("Closed %d substitution offer round(s) nobody accepted", closed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Substitution sweep failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_pool()
@@ -110,12 +128,14 @@ async def lifespan(app: FastAPI):
     )
     task = asyncio.create_task(_housekeeping())
     keepalive = asyncio.create_task(_keepalive())
+    sweep = asyncio.create_task(_substitution_sweep())
     log.info("TimeTablePro API is ready")
     try:
         yield
     finally:
         task.cancel()
         keepalive.cancel()
+        sweep.cancel()
         await auth.aclose()
         await db.close_pool()
 
@@ -261,6 +281,10 @@ app.include_router(publish.router)
 app.include_router(views.router)
 app.include_router(exports.router)
 app.include_router(hours.router)
+app.include_router(absence.router)
+app.include_router(leave.router)
+app.include_router(subs.router)
+app.include_router(adjust.router)
 app.include_router(notifications.router)
 app.include_router(notifications.push_router)
 app.include_router(calendar.router)

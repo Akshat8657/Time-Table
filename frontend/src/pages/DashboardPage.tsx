@@ -12,6 +12,7 @@ import { EmptyState, PageHeader, Panel, Skeleton, StatCard } from '../components
 import { TodayPanel } from '../components/TodayPanel'
 import { useConsent } from '../consent/ConsentProvider'
 import { useNotifications } from '../lib/notifications'
+import { useOffers } from '../lib/offers'
 import { firstName, formatDuration, greeting } from '../lib/format'
 import { formatDate, formatRange } from '../lib/helpers'
 import { ROLE_LABEL, ROLE_PREFIX } from '../lib/nav'
@@ -74,7 +75,7 @@ interface TeacherOverview {
 }
 
 /** The four "at a glance" cards every dashboard shows (Section 6). Real numbers arrive with the later phases. */
-function GlanceCards({ upcoming, hours }: { upcoming?: Upcoming[]; hours?: HoursSummary | null }) {
+function GlanceCards({ upcoming, hours, offers, absents }: { upcoming?: Upcoming[]; hours?: HoursSummary | null; offers?: number; absents?: number }) {
   const next = upcoming?.[0]
   const hoursCard =
     hours === undefined
@@ -88,8 +89,8 @@ function GlanceCards({ upcoming, hours }: { upcoming?: Upcoming[]; hours?: Hours
             : { value: 0, caption: 'Every subject is on track' }
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard icon={CalendarOff} label="Today’s absents" value="—" caption="Tracking starts in Phase 5" />
-      <StatCard icon={Repeat} label="Pending substitutions" value="—" caption="Available from Phase 5" />
+      <StatCard icon={CalendarOff} label="Today’s absents" value={absents ?? '—'} caption={absents === undefined ? 'On the Substitutions screen' : absents === 0 ? 'Nobody absent today' : 'See the Substitutions screen'} />
+      <StatCard icon={Repeat} label={offers === undefined ? 'Substitutions' : 'Offers waiting for you'} value={offers ?? '—'} caption={offers === undefined ? 'Manage on the Substitutions screen' : offers === 0 ? 'No offers right now' : 'Open the Offers screen'} />
       <StatCard icon={TriangleAlert} label="Subjects short of hours" value={hoursCard.value} caption={hoursCard.caption} />
       <StatCard
         icon={CalendarDays}
@@ -204,6 +205,26 @@ function PublishPanel({ block, linkTo }: { block: PublishBlock | null | undefine
           <span className="font-semibold text-ink">{block.published} of {block.classes}</span> classes are live for teachers.{' '}
           {block.with_primary > block.published ? `${block.with_primary - block.published} more ${block.with_primary - block.published === 1 ? 'has a' : 'have a'} primary draft ready to publish.` : block.classes > block.published ? 'The others still need a primary draft.' : 'Everything is published.'}
         </p>
+      )}
+    </Panel>
+  )
+}
+
+function SubsTodayPanel({ linkTo }: { linkTo: string }) {
+  const subs = useApi<{ date: string; summary: { need?: number; filled?: number } }>('/subs')
+  const need = subs.data?.summary?.need ?? 0
+  const filled = subs.data?.summary?.filled ?? 0
+  return (
+    <Panel title="Substitutions today" icon={Repeat} action={<Link to={linkTo} className="text-[13px] font-medium text-brand-text hover:underline">Open</Link>}>
+      {subs.loading && !subs.data ? (
+        <Skeleton className="h-12" />
+      ) : need > 0 ? (
+        <p className="text-sm leading-relaxed text-muted">
+          <span className="font-semibold text-danger">{need} lecture{need === 1 ? '' : 's'}</span> still need a substitute today.
+          {filled > 0 ? ` ${filled} already arranged.` : ''}
+        </p>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-success"><Check className="size-4" aria-hidden="true" /> {filled > 0 ? `All ${filled} covered.` : 'Nobody is absent today.'}</p>
       )}
     </Panel>
   )
@@ -504,6 +525,9 @@ export function HodDashboard() {
         <HoursPanel summary={summary} linkTo="/hod/semester-hours" />
         <PublishPanel block={loading ? undefined : (data?.publish ?? null)} linkTo="/hod/publish" />
       </div>
+      <div className="mt-6">
+        <SubsTodayPanel linkTo="/hod/substitutions" />
+      </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <TodayPanel title="Today - my own lectures" />
         <HoursPanel summary={mySummary} linkTo="/hod/my-schedule/subjects" mine />
@@ -527,12 +551,13 @@ export function HodDashboard() {
 export function TeacherDashboard() {
   const { data, error, loading, reload } = useApi<TeacherOverview>('/teacher/overview')
   const { arrivals } = useNotifications()
+  const { offers } = useOffers()
   const mine = useApi<MyHoursPayload>(`/hours/my?_=${arrivals}`)
   const summary: HoursSummary | null | undefined = mine.loading && !mine.data ? undefined : (mine.data?.summary ?? null)
   return (
     <>
       <Welcome role="teacher" />
-      <GlanceCards upcoming={data?.upcoming} hours={summary} />
+      <GlanceCards upcoming={data?.upcoming} hours={summary} offers={offers.length} />
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <TodayPanel />
         <Panel title="My school" icon={Building2}>

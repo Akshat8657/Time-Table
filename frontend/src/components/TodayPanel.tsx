@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarOff, ChevronLeft, ChevronRight, Clock, Layers, Lock, Plus, Users } from 'lucide-react'
+import { ArrowRightLeft, CalendarOff, ChevronLeft, ChevronRight, Clock, Layers, Lock, Plus, Repeat, Users } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { addDaysIso, formatDate, todayIso, weekdayOf } from '../lib/helpers'
 import { ROLE_PREFIX } from '../lib/nav'
@@ -44,13 +44,19 @@ function Lecture({ c, state }: { c: ViewCell; state: 'now' | 'next' | null }) {
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {state === 'now' && <Badge tone="brand">Now</Badge>}
           {state === 'next' && <Badge tone="info">Next</Badge>}
+          {c.kind === 'substitution' && <Badge tone="info"><Repeat className="size-3" aria-hidden="true" /> Substitution · covering for {c.substitution?.for_name}</Badge>}
           {c.kind === 'extra' && <Badge tone="info"><Plus className="size-3" aria-hidden="true" /> Extra lecture{c.extra?.reason ? ` · ${c.extra.reason}` : ''}</Badge>}
           {c.kind === 'fixed' && <Badge><Lock className="size-3" aria-hidden="true" /> {c.fixed_kind === 'OTHER' ? 'Locked slot' : c.fixed_kind}</Badge>}
+          {c.mine_absent && <Badge tone="warning"><CalendarOff className="size-3" aria-hidden="true" /> You are absent{c.substitutions?.[0]?.substitute_name ? ` · ${c.substitutions[0].substitute_name} covers` : ''}</Badge>}
+          {!c.mine_absent && (c.substitutions ?? []).map((s) => (
+            <Badge key={s.id} tone={s.status === 'filled' ? 'info' : 'warning'}><Repeat className="size-3" aria-hidden="true" /> {s.status === 'filled' ? `Sub: ${s.substitute_name}` : 'Needs substitute'}</Badge>
+          ))}
+          {c.adjusted?.kind === 'move' && <Badge tone="brand"><ArrowRightLeft className="size-3" aria-hidden="true" /> {c.adjusted.swap ? 'Swapped' : `Moved from P${c.moved_from}`}</Badge>}
           {c.parallel_with && c.parallel_with.length > 0 && <Badge><Layers className="size-3" aria-hidden="true" /> Parallel with {c.parallel_with.join(', ')}</Badge>}
           {(c.combined || c.combined_with) && <Badge><Users className="size-3" aria-hidden="true" /> {c.classes.length > 1 ? 'Combined session' : `Combined with ${c.combined_with}`}</Badge>}
           {c.status && (
-            <Badge tone={c.status === 'holiday' ? 'success' : 'warning'}>
-              <CalendarOff className="size-3" aria-hidden="true" /> {c.status === 'holiday' ? 'Holiday' : c.status === 'event' ? 'Event' : 'Semester not running'}
+            <Badge tone={c.status === 'holiday' ? 'success' : c.status === 'cancelled' ? 'danger' : 'warning'}>
+              <CalendarOff className="size-3" aria-hidden="true" /> {c.status === 'holiday' ? 'Holiday' : c.status === 'event' ? 'Event' : c.status === 'cancelled' ? 'Cancelled today' : 'Semester not running'}
               {c.status_note ? `: ${c.status_note}` : ''}
             </Badge>
           )}

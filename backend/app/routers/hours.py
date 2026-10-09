@@ -46,6 +46,15 @@ async def _data(school_id: uuid.UUID) -> ViewData | None:
     return None if term is None else await load_view_data(school_id, term)
 
 
+async def _cancelled(school_id: uuid.UUID, term_id: uuid.UUID) -> set:
+    """(semester_id, date, start_period) slots cancelled by a one-day adjustment - counted as lost hours (Phase 5)."""
+    rows = await db.fetch(
+        "select semester_ids, lecture_date, orig_start from public.day_adjustments where school_id = $1 and term_id = $2 and kind = 'cancel'",
+        school_id, term_id,
+    )
+    return {(sem, r["lecture_date"], r["orig_start"]) for r in rows for sem in (r["semester_ids"] or [])}
+
+
 def _dates_out(data: ViewData, sem_id: uuid.UUID) -> dict[str, str] | None:
     d = data.term_dates.get(sem_id)
     return None if d is None else {"start": d[0].isoformat(), "end": d[1].isoformat()}
@@ -56,7 +65,7 @@ async def school_summary(school_id: uuid.UUID) -> dict[str, Any] | None:
     data = await _data(school_id)
     if data is None:
         return None
-    return hr.summarize(hr.compute_hours(data, vw.today_ist()))
+    return hr.summarize(hr.compute_hours(data, vw.today_ist(), cancelled=await _cancelled(school_id, data.term['id'])))
 
 
 # ---------------------------------------------------------------------------------------------------- tracking
@@ -81,7 +90,7 @@ async def subjects(school_id: str | None = None, semester_id: str | None = None,
     if only and not only <= set(data.sems):
         raise ApiError(404, "NOT_FOUND", "That class is not running in the active term.")
     today = vw.today_ist()
-    per_class = hr.compute_hours(data, today, only, await _assignments(sid, data.term["id"]))
+    per_class = hr.compute_hours(data, today, only, await _assignments(sid, data.term["id"]), cancelled=await _cancelled(sid, data.term["id"]))
     classes = []
     for sem_id, rows in per_class.items():
         classes.append({
@@ -104,7 +113,7 @@ async def my_hours(user: CurrentUser = Depends(require_roles(*TEACHING))) -> dic
     assigned = await _assignments(sid, data.term["id"])
     mine_assigned = {s for s, (t, co) in assigned.items() if me in (t, co)}
     today = vw.today_ist()
-    per_class = hr.compute_hours(data, today)
+    per_class = hr.compute_hours(data, today, cancelled=await _cancelled(sid, data.term['id']))
     rows = [h for hs in per_class.values() for h in hs if any(t == me for t, _n in h.teachers) or h.subject.id in mine_assigned]
     return {
         "term": term_svc.term_out(data.term), "today": today.isoformat(),
@@ -141,7 +150,7 @@ async def _plan(user: CurrentUser, subject_id: str):
 async def suggest(body: SuggestIn, user: CurrentUser = Depends(require_roles(*MANAGERS))) -> dict:
     subj, data, planner, _ = await _plan(user, body.subject_id)
     today = vw.today_ist()
-    per_class = hr.compute_hours(data, today, {subj["semester_id"]})
+    per_class = hr.compute_hours(data, today, {subj["semester_id"]}, cancelled=await _cancelled(subj["school_id"], data.term['id']))
     mine = next(h for h in per_class[subj["semester_id"]] if h.subject.id == subj["id"])
     needed = body.count or mine.as_dict()["extra_lectures_needed"]
     if needed == 0:

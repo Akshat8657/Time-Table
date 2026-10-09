@@ -760,3 +760,50 @@ def master_xlsx(data: ViewData, cells: list[dict[str, Any]], classes: list[Any],
     if not wb.sheetnames or not days:
         pass
     return _save(wb)
+
+
+# ---------------------------------------------------------------------------------------------------- substitution sheet
+def _status_text(row: dict[str, Any]) -> tuple[str, tuple[float, float, float]]:
+    st = row["status"]
+    if st == "filled":
+        return (f"{row.get('sub_name') or 'Assigned'}" + (f" ({row['mode']})" if row.get("mode") else "")), (0.86, 0.96, 0.88)
+    if st == "offering":
+        return "Offer sent - waiting", (0.90, 0.92, 0.996)
+    if st == "unfilled":
+        return "NOT COVERED - assign", (0.996, 0.86, 0.86)
+    return "Needs a substitute", (0.996, 0.95, 0.80)
+
+
+def substitution_sheet_pdf(data: ViewData, d: date, rows: list[dict[str, Any]]) -> bytes:
+    """A printable daily substitution sheet: every absent teacher's lecture for the day and who is covering it."""
+    buf = io.BytesIO()
+    header = Header(data.college_name, data.school_name, "Daily Substitution Sheet", d.strftime("%A, %d %B %Y"), f"{term_text(data)}")
+    doc, _ = _doc(buf, header, f"{data.college_name} - {data.school_name} | Printed {now_text()}")
+    st = _styles()
+    flow: list[Any] = _header_flow(header, st, doc.width)
+    if not rows:
+        flow.append(Paragraph("No teacher is absent on this day - nothing to substitute.", st["h2"]))
+        doc.build(flow)
+        return buf.getvalue()
+    head = [Paragraph(h, st["head"]) for h in ("Period", "Time", "Class", "Subject", "Absent teacher", "Covered by")]
+    table_rows = [head]
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND), ("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for i, r in enumerate(sorted(rows, key=lambda x: (x["start_period"], x.get("absent_name") or "")), start=1):
+        classes = ", ".join(sorted(data.sems[s].label for s in (r["semester_ids"] or []) if s in data.sems))
+        span = f"P{r['start_period']}" + (f"-{r['start_period'] + r['length'] - 1}" if r["length"] > 1 else "")
+        status_text, rgb = _status_text(r)
+        cells = [span, timing_svc.time_range(data.grid, r["start_period"], r["length"]) or "", classes, r["label"], r.get("absent_name") or "", status_text]
+        table_rows.append([Paragraph(escape(safe(c)), st["cell"]) for c in cells])
+        style.append(("BACKGROUND", (5, i), (5, i), colors.Color(*rgb)))
+    widths = [doc.width * w for w in (0.08, 0.14, 0.22, 0.24, 0.17, 0.15)]
+    t = Table(table_rows, colWidths=widths, repeatRows=1)
+    t.setStyle(TableStyle(style))
+    flow.append(t)
+    flow.append(Spacer(1, 3 * mm))
+    need = sum(1 for r in rows if r["status"] in ("open", "offering", "unfilled"))
+    flow.append(Paragraph(escape(safe(f"{len(rows)} lecture(s) to cover, {len(rows) - need} arranged, {need} still open. Green = covered, yellow = pending, red = not covered.")), st["small"]))
+    doc.build(flow)
+    return buf.getvalue()

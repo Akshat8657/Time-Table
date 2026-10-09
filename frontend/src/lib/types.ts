@@ -580,11 +580,16 @@ export interface ViewItem {
   teacher_name: string | null
   co_teacher_id: string | null
   co_teacher_name: string | null
+  // Phase 5: when the teacher of this item is absent that date
+  absent?: boolean
+  absent_teacher_name?: string
+  substitute_id?: string
+  substitute_name?: string
 }
 
 export interface ViewCell {
   key: string
-  kind: 'lecture' | 'fixed' | 'extra'
+  kind: 'lecture' | 'fixed' | 'extra' | 'substitution'
   fixed_kind: string | null
   day: number
   day_name: string
@@ -599,9 +604,16 @@ export interface ViewCell {
   parallel_with?: string[]
   is_lab: boolean
   date: string | null
-  status: 'holiday' | 'event' | 'not_running' | null
+  status: 'holiday' | 'event' | 'not_running' | 'cancelled' | null
   status_note: string | null
   extra: { id: string; date: string; reason: string | null } | null
+  // Phase 5 overlay
+  substitutions?: { id: string; status: string; absent_id: string; absent_name: string | null; substitute_id: string | null; substitute_name: string | null; subjects: string[] }[]
+  substitution?: { for_id: string; for_name: string | null }
+  adjusted?: { kind: 'move' | 'cancel'; from?: number; to?: number; reason: string | null; swap?: boolean }
+  moved_from?: number
+  moved_from_time?: string
+  mine_absent?: boolean
 }
 
 export interface DayBanner {
@@ -628,6 +640,14 @@ export interface ViewStats {
   extra: number
 }
 
+export interface DayStats {
+  covering: number
+  my_absent: number
+  needs_sub: number
+  cancelled_today: number
+  moved: number
+}
+
 export interface PublishedInfo {
   term: Term | null
   published: boolean
@@ -642,6 +662,7 @@ export interface WeekView extends PublishedInfo {
   grid: GridInfo
   cells: ViewCell[]
   stats: ViewStats
+  day_stats?: DayStats
   owner?: { id: string; name: string; school?: string }
   off_days?: Record<string, Record<string, { is_off: boolean; end_time: string | null }>>
 }
@@ -656,6 +677,7 @@ export interface TodayView extends PublishedInfo {
   grid: GridInfo
   cells: ViewCell[]
   stats: ViewStats
+  day_stats?: DayStats
   current_key: string | null
   next_key: string | null
   week_lectures: number
@@ -795,4 +817,128 @@ export interface ExtraLecture {
   reason: string | null
   teacher_name: string | null
   can_cancel: boolean
+}
+
+// ====================================================================================================== Phase 5
+export interface AffectedSlot {
+  id?: string
+  start_period: number
+  length: number
+  label: string
+  time: string | null
+  classes: string[]
+  status: 'open' | 'covered' | 'exists'
+  note?: string
+}
+
+export interface MarkAbsentResult {
+  absence_id: string
+  teacher_id: string
+  teacher_name: string | null
+  date: string
+  affected: AffectedSlot[]
+  to_cover: number
+  message: string
+}
+
+export interface MyAbsence {
+  id: string
+  date: string
+  reason: string | null
+  source: string
+  past: boolean
+}
+
+export interface LeaveRequest {
+  id: string
+  teacher_id: string
+  teacher_name: string | null
+  date_from: string
+  date_to: string
+  days: number
+  reason: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
+  decided_by: string | null
+  decided_by_name: string | null
+  decided_at: string | null
+  decision_note: string | null
+  created_at: string
+}
+
+export interface AbsenceRow {
+  id: string
+  teacher_id: string
+  teacher_name: string | null
+  date: string
+  reason: string | null
+  source: string
+  open: number
+  offering: number
+  filled: number
+  unfilled: number
+}
+
+export interface Substitution {
+  id: string
+  lecture_date: string
+  start_period: number
+  length: number
+  time: string | null
+  label: string
+  classes: string[]
+  absent_teacher_id: string
+  absent_teacher_name: string | null
+  status: 'open' | 'offering' | 'filled' | 'unfilled' | 'cancelled'
+  mode: 'manual' | 'auto' | null
+  substitute_id: string | null
+  substitute_name: string | null
+  offer_deadline: string | null
+  candidates?: number | null
+}
+
+export interface SubCandidate {
+  teacher_id: string
+  name: string
+  score: number
+  reasons: string[]
+  load_today: number
+  can_teach: boolean
+  taught_before: boolean
+  is_visiting: boolean
+}
+
+export interface SubOffer extends Substitution {
+  offer_id: string
+  reasons: string[]
+  expires_at: string
+}
+
+export interface MyOffersPayload {
+  offers: SubOffer[]
+  covering: Substitution[]
+}
+
+export interface AdjustSuggestion {
+  kind: 'move' | 'swap'
+  new_start?: number
+  swap_with_start?: number
+  time: string | null
+  reasons: string[]
+  direction?: string
+  with_label?: string
+}
+
+export interface AdjustSuggestPayload {
+  lecture: { label: string; start_period: number; length: number; time: string | null }
+  moves: AdjustSuggestion[]
+  swaps: AdjustSuggestion[]
+  message: string
+}
+
+export interface MonthlySummary {
+  month: string
+  month_label: string
+  school: { id: string; name: string }
+  teachers: { teacher_id: string; name: string; absences: number; covered: number; needed_cover: number }[]
+  totals: { absences: number; covered: number; filled: number; unfilled: number }
 }
