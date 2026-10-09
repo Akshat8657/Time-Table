@@ -6,10 +6,21 @@
 > Hinglish: Phase 1 ka backend, saari screens aur tests ban chuke hain. Ab sirf hand-over bacha hai: app silently start karke browser kholna,
 > `Phase1.zip` backup, aur PHASE 1 REPORT. Seed data abhi load NAHI karna (Phase 1 approve hone ke baad alag step).
 
+## 0. SUPABASE MOVED TO MUMBAI (2026-10-09)
+The database now lives in a NEW free Supabase project `timetablepro-mumbai` (ref `riiuhmuieheaidmlalah`, South Asia / Mumbai, pooler host `aws-0-ap-south-1`). The old Tokyo project (ref `ggvsazqdvfqdhiainxzq`) was DELETED by the user on 2026-10-09 - there is no going back, and nothing is needed from it.
+- Speed (scratchpad `bench.py`): one query 155 ms -> 58 ms, opening a connection 1050 ms -> 495 ms, Supabase Auth HTTPS call 220 ms -> 95 ms.
+- Rebuilt on the new project: migrations 001-005 (School of IT, 3 courses, 13 semesters, timing 10:00-16:50 / 60+5 min / Mon-Fri, lunch 13:10-13:40, 34 India holidays) + admin account (`python -m scripts.seed_admin`; same email, NEW temp password, must change at first login). Everything else is empty (no terms/subjects/assignments/slots/audit rows).
+- Verified: health check OK, live login OK (wrong password 401, admin login 200, JWT accepted via the new JWKS ES256, logout kills the token), Auth settings reachable.
+- The user once pasted `.../rest/v1/` after the Project URL; the correct form is just `https://<ref>.supabase.co` (fixed in `.env`).
+- Public sign-up is OFF on the new project (the user switched it off; checked with `auth/v1/settings` -> `disable_signup=true`, and `test_public_signup_is_closed` passes).
+- Full backend test suite on the Mumbai database: **338 passed** (337 in one session in 11 min 28 s - half the old 22 min - plus `test_public_signup_is_closed` after sign-up was switched off). Note: that one test needs the test server started by an earlier test; run the whole `tests/test_api_integration.py` file, not the single test.
+- The 4 `# OLD_SUPABASE_*` backup lines were removed from `.env` after verification. `.env` now holds only the new project's 4 values.
+- Admin temp password: shown once to the user in the chat summary (never stored in a file). First login forces a new password.
+
 ## 1. Project quick facts
 - Folder `D:\Timetable Management` — `backend\` (Python FastAPI), `frontend\` (React + Vite), `tools\`, `start.bat`/`stop.bat`,
   shortcuts `Start TimeTablePro.lnk` / `Stop TimeTablePro.lnk` (silent launcher — do NOT break it; `TT_NO_BROWSER=1` = start without opening a tab, `TT_NO_POPUP=1` = no error popup).
-- Python: `backend\.venv\Scripts\python.exe`. DB = Supabase (Tokyo pooler, session mode port 5432). Never print keys from `.env`.
+- Python: `backend\.venv\Scripts\python.exe`. DB = Supabase (Mumbai `ap-south-1` session pooler, port 5432). Never print keys from `.env`.
 - Database changes: `cd backend` → `.\.venv\Scripts\python.exe -m scripts.migrate` (applied up to **005**).
 - Tests: `cd backend` → `.\.venv\Scripts\python.exe -m pytest -q`. They hit the REAL Supabase and are slow (≈ 0.5-2 s per request).
   **Run big test files in the background and read the output file** (output is buffered). Supabase allows ~30 password sign-ins per 5 minutes: never run the whole suite twice within 5 minutes.
