@@ -30,7 +30,7 @@ function SolutionCard({ sol, best, busy, onUse }: { sol: GenSolution; best: bool
   const draftOf = new Map(sol.drafts.map((d) => [d.semester_id, d.draft_id]))
   const semOf = new Map(Object.entries(sol.breakdown.classes).map(([sem, v]) => [v.label, sem]))
   return (
-    <div className={`rounded-xl border p-4 ${sol.in_use ? 'border-brand bg-brand-soft/40' : 'border-line bg-surface-2/50'}`}>
+    <div className={`rounded-xl border p-4 ${sol.in_use ? 'border-accent bg-brand-soft/40' : 'border-line bg-surface-2/50'}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex size-8 items-center justify-center rounded-lg bg-brand-soft text-sm font-bold text-brand-text">{sol.label}</span>
         <span className="text-2xl font-semibold tabular-nums text-ink">{sol.score}</span>
@@ -88,7 +88,7 @@ function SolutionCard({ sol, best, busy, onUse }: { sol: GenSolution; best: bool
                 </span>
               </div>
               <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-inset ring-line">
-                <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(r.satisfaction * 100)}%` }} />
+                <div className="h-full rounded-full bg-accent" style={{ width: `${Math.round(r.satisfaction * 100)}%` }} />
               </div>
               {r.detail && (
                 <div className="mt-1 text-[11px] leading-snug text-muted" data-testid="pref-detail">
@@ -208,7 +208,7 @@ export function GenerationPanel({ onChanged }: { onChanged: () => void }) {
               <legend className="mb-1.5 block text-[13px] font-medium text-ink">Mode</legend>
               <div className="flex gap-2">
                 {([['fresh', 'Fresh'], ['keep_locked', 'Keep pinned placements']] as const).map(([value, label]) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-[13px] font-medium ${mode === value ? 'border-brand bg-brand-soft text-brand-text' : 'border-line-strong text-muted hover:bg-hover'}`}>
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-[13px] font-medium ${mode === value ? 'border-accent bg-brand-soft text-brand-text' : 'border-line-strong text-muted hover:bg-hover'}`}>
                     <input type="radio" name="gen-mode" className="size-3.5 accent-[var(--brand-solid)]" checked={mode === value} onChange={() => setMode(value)} />
                     {label}
                   </label>
@@ -260,7 +260,7 @@ export function GenerationPanel({ onChanged }: { onChanged: () => void }) {
         )}
 
         {running && (
-          <div className="mt-4 rounded-xl border border-brand/40 bg-brand-soft/40 p-4" aria-live="polite">
+          <div className="mt-4 rounded-xl border border-accent/40 bg-brand-soft/40 p-4" aria-live="polite">
             <div className="flex flex-wrap items-center gap-3">
               <Loader2 className="size-5 animate-spin text-brand-text" aria-hidden="true" />
               <div className="min-w-0 flex-1">
@@ -274,7 +274,7 @@ export function GenerationPanel({ onChanged }: { onChanged: () => void }) {
               </Button>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface ring-1 ring-inset ring-line" role="progressbar" aria-valuenow={running.progress} aria-valuemin={0} aria-valuemax={100}>
-              <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${running.progress}%` }} />
+              <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${running.progress}%` }} />
             </div>
             {running.precheck.length > 0 && (
               <ul className="mt-3 space-y-1 text-xs text-warning">

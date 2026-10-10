@@ -2,8 +2,8 @@ import { forwardRef, useId, type ReactNode, type SelectHTMLAttributes, type Text
 import { ChevronDown, TriangleAlert } from 'lucide-react'
 
 const CONTROL =
-  'block w-full rounded-xl border bg-surface text-[15px] text-ink placeholder:text-subtle transition-colors duration-150 ' +
-  'focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-subtle'
+  'block w-full rounded-xl border bg-field text-[15px] text-ink placeholder:text-subtle transition-colors duration-150 ' +
+  'focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-subtle'
 
 function Message({ id, error, hint }: { id: string; error?: string | null; hint?: ReactNode }) {
   if (error) {

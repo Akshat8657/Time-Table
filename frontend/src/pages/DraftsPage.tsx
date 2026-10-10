@@ -307,7 +307,7 @@ export default function DraftsPage() {
                           </span>
                           <span className="font-semibold tabular-nums text-ink">{d.percent}%</span>
                         </div>
-                        <Progress percent={d.percent} tone={d.percent === 100 ? 'bg-[var(--success)]' : 'bg-brand'} />
+                        <Progress percent={d.percent} tone={d.percent === 100 ? 'bg-success-solid' : 'bg-accent'} />
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {d.clashes > 0 && (
                             <Badge tone="danger">

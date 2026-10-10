@@ -15,8 +15,8 @@ export function HoursBar({ h }: { h: HoursSubject }) {
         role="img"
         aria-label={`${h.delivered} of ${h.required} hours taught, ${h.deliverable} possible by the end of the semester`}
       >
-        <div className={`absolute inset-y-0 left-0 rounded-full ${short ? 'bg-danger/30' : 'bg-success/30'}`} style={{ width: `${planned}%` }} />
-        <div className={`absolute inset-y-0 left-0 rounded-full ${short ? 'bg-danger' : 'bg-success'}`} style={{ width: `${done}%` }} />
+        <div className={`absolute inset-y-0 left-0 rounded-full ${short ? 'bg-danger-solid/30' : 'bg-success-solid/30'}`} style={{ width: `${planned}%` }} />
+        <div className={`absolute inset-y-0 left-0 rounded-full ${short ? 'bg-danger-solid' : 'bg-success-solid'}`} style={{ width: `${done}%` }} />
       </div>
       <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
         <span><span className="font-semibold tabular-nums text-ink">{h.delivered}</span> taught</span>

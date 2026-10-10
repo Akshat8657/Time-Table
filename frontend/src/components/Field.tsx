@@ -9,8 +9,8 @@ interface BaseProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> 
 }
 
 const INPUT_BASE =
-  'peer block h-11 w-full rounded-xl border bg-surface text-[15px] text-ink placeholder:text-subtle transition-colors duration-150 ' +
-  'focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-subtle'
+  'peer block h-11 w-full rounded-xl border bg-field text-[15px] text-ink placeholder:text-subtle transition-colors duration-150 ' +
+  'focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-subtle'
 
 export const TextField = forwardRef<HTMLInputElement, BaseProps>(function TextField(
   { label, error, hint, icon, id, className = '', ...rest },
@@ -149,7 +149,7 @@ export function Checkbox({ label, description, id, className = '', ...rest }: Ch
     <label htmlFor={inputId} className={`group flex cursor-pointer items-start gap-3 ${className}`}>
       <span className="relative mt-0.5 flex size-[18px] shrink-0 items-center justify-center">
         <input id={inputId} type="checkbox" className="peer absolute inset-0 size-full cursor-pointer opacity-0" {...rest} />
-        <span className="pointer-events-none absolute inset-0 rounded-[5px] border border-line-strong bg-surface transition-colors peer-checked:border-brand peer-checked:bg-brand peer-focus-visible:ring-4 peer-focus-visible:ring-[color:var(--brand-ring)] group-hover:border-brand" />
+        <span className="pointer-events-none absolute inset-0 rounded-[5px] border border-line-strong bg-field transition-colors peer-checked:border-accent peer-checked:bg-brand peer-focus-visible:ring-4 peer-focus-visible:ring-[color:var(--brand-ring)] group-hover:border-accent" />
         <Check className="pointer-events-none relative size-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={3.5} />
       </span>
       <span className="min-w-0 text-sm leading-snug">

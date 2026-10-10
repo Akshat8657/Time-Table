@@ -12,7 +12,7 @@ export function Avatar({ name, photoUrl, size = 'md' }: { name: string; photoUrl
       alt={`Photo of ${name}`}
       className={`${base} object-cover ring-1 ring-line`}
       fallback={
-        <span aria-hidden="true" className={`${base} flex items-center justify-center bg-gradient-to-br from-indigo-500 to-indigo-700 font-semibold text-white`}>
+        <span aria-hidden="true" className={`${base} flex items-center justify-center bg-gradient-to-br from-indigo-500 to-indigo-700 dark:from-[#1d8b94] dark:to-[#10606f] font-semibold text-white`}>
           {initials(name)}
         </span>
       }

@@ -37,7 +37,7 @@ export function PeriodTimeline({ grid, highlight }: { grid: GridInfo; highlight?
               <li
                 key={item.number}
                 className={`rounded-xl border px-2 py-2.5 text-center ${
-                  highlight === item.number ? 'border-brand bg-brand-soft text-brand-text' : 'border-line bg-surface-2 text-ink'
+                  highlight === item.number ? 'border-accent bg-brand-soft text-brand-text' : 'border-line bg-surface-2 text-ink'
                 }`}
               >
                 <span className="block text-xs font-semibold uppercase tracking-wide text-muted">Period {item.number}</span>

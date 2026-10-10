@@ -38,14 +38,14 @@ export function CellContent({ cell, mode, compact = false }: { cell: ViewCell; m
   const tag = 'inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-semibold leading-tight'
   const subs = cell.substitutions ?? []
   return (
-    <div className={`flex h-full flex-col justify-center gap-0.5 text-center ${cancelled ? 'opacity-70' : ''}`}>
+    <div className={`flex h-full flex-col justify-center gap-0.5 text-center ${cancelled ? 'opacity-70 dark:opacity-85' : ''}`}>
       {cell.kind === 'substitution' && (
-        <span className={`${tag} mx-auto bg-info text-white`}>
+        <span className={`${tag} mx-auto bg-info-solid text-white`}>
           <Repeat className="size-2.5" aria-hidden="true" /> SUBSTITUTION
         </span>
       )}
       {cell.kind === 'extra' && (
-        <span className={`${tag} mx-auto bg-info text-white`}>
+        <span className={`${tag} mx-auto bg-info-solid text-white`}>
           <Plus className="size-2.5" aria-hidden="true" /> EXTRA {cell.date ? shortDate(cell.date) : ''}
         </span>
       )}
@@ -95,19 +95,19 @@ export function CellContent({ cell, mode, compact = false }: { cell: ViewCell; m
         <span className="block text-[11px] leading-tight opacity-90">for {cell.substitution.for_name}</span>
       )}
       {subs.map((s) => (
-        <span key={s.id} className={`${tag} mx-auto ${s.status === 'filled' ? 'bg-info text-white' : 'bg-warning text-white'}`}>
+        <span key={s.id} className={`${tag} mx-auto ${s.status === 'filled' ? 'bg-info-solid text-white' : 'bg-warning-solid text-white'}`}>
           <Repeat className="size-2.5" aria-hidden="true" />
           {s.status === 'filled' ? `Sub: ${s.substitute_name}` : s.status === 'offering' ? 'Offer sent' : 'Needs substitute'}
         </span>
       ))}
-      {cell.mine_absent && <span className={`${tag} mx-auto bg-warning text-white`}><CalendarOff className="size-2.5" aria-hidden="true" /> You are absent</span>}
+      {cell.mine_absent && <span className={`${tag} mx-auto bg-warning-solid text-white`}><CalendarOff className="size-2.5" aria-hidden="true" /> You are absent</span>}
       {cell.adjusted?.kind === 'move' && (
         <span className={`${tag} mx-auto bg-brand text-white`}>
           <ArrowRightLeft className="size-2.5" aria-hidden="true" /> {cell.adjusted.swap ? 'Swapped' : `Moved from P${cell.moved_from}`}
         </span>
       )}
       {cell.status && (
-        <span className={`${tag} mx-auto ${cell.status === 'holiday' ? 'bg-success text-white' : cell.status === 'event' ? 'bg-warning text-white' : cell.status === 'cancelled' ? 'bg-danger text-white' : 'bg-subtle text-white'}`}>
+        <span className={`${tag} mx-auto ${cell.status === 'holiday' ? 'bg-success-solid text-white' : cell.status === 'event' ? 'bg-warning-solid text-white' : cell.status === 'cancelled' ? 'bg-danger-solid text-white' : 'bg-neutral-solid text-white'}`}>
           <CalendarOff className="size-2.5" aria-hidden="true" />
           {cell.status === 'holiday' ? 'Holiday' : cell.status === 'event' ? 'Event' : cell.status === 'cancelled' ? 'Cancelled' : 'No semester'}
           {cell.status_note ? `: ${cell.status_note}` : ''}

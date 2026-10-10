@@ -37,46 +37,79 @@
   --info-soft: #eff6ff;
   --info-line: #bfd6fb;
 
+  /* Extra roles (added with the dark teal palette). In light mode each one is exactly the colour the app already used. */
+  --accent: #4f46e5;               /* selected borders, focus ring, progress / chart fills */
+  --field: #ffffff;                /* the inside of a text box / drop-down */
+  --focus: #4f46e5;                /* keyboard focus outline */
+  --on-brand-hover: #ffffff;       /* text on a primary button while the mouse is over it */
+  --nav-active-bg: #eceefe;        /* the menu item of the screen you are on */
+  --nav-active-ink: #4338ca;
+  --danger-solid: #b91c1c;         /* a filled red / amber / green / blue badge or bar (white text goes on it) */
+  --warning-solid: #92400e;
+  --success-solid: #166534;
+  --info-solid: #1e40af;
+  --neutral-solid: #8791a8;
+  --logo-a: #6366f1;
+  --logo-b: #4338ca;
+
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 28px -8px rgba(15, 23, 42, 0.12);
   --shadow-pop: 0 2px 6px rgba(15, 23, 42, 0.06), 0 18px 48px -12px rgba(15, 23, 42, 0.22);
   --glow-a: rgba(99, 102, 241, 0.16);
   --glow-b: rgba(14, 165, 233, 0.1);
 }
 
+/* DARK = the 7-colour teal palette: #04222B  #0A3D4A  #10606F  #1D8B94  #4FB8B4  #98D8D0  #E2F4F0 (darkest -> lightest).
+   page #04222B | cards, sidebar, dialogs #0A3D4A | borders / hover / inputs from #10606F | buttons + menu #1D8B94 (a touch deeper,
+   #1B808A, so the white label on it passes the 4.5:1 contrast rule) | accents, selection, focus, charts #4FB8B4 |
+   secondary text #98D8D0 | main text #E2F4F0. Red / amber / green / blue keep their meaning, re-tuned for these backgrounds. */
 [data-theme="dark"] {
-  --bg: #0a0e1d;
-  --surface: #111733;
-  --surface-2: #0e132b;
-  --surface-hover: #19214a;
-  --border: #232c55;
-  --border-strong: #34406f;
-  --text: #e9edfa;
-  --text-muted: #a3adcc;
-  --text-subtle: #7782a5;
+  --bg: #04222b;
+  --surface: #0a3d4a;
+  --surface-2: #072f3a;
+  --surface-hover: #0d4f5c;
+  --border: #10606f;
+  --border-strong: #1b7c86;
+  --text: #e2f4f0;
+  --text-muted: #98d8d0;
+  --text-subtle: #72bdb8;
 
-  --brand-solid: #5b54f0;
-  --brand-solid-hover: #6d67f5;
-  --brand-text: #a5b0ff;
-  --brand-soft: #1b2250;
-  --brand-ring: rgba(129, 140, 248, 0.45);
+  --brand-solid: #1b808a;
+  --brand-solid-hover: #4fb8b4;
+  --brand-text: #74cbc5;
+  --brand-soft: #0f5260;
+  --brand-ring: rgba(79, 184, 180, 0.4);
 
-  --danger: #fca5a5;
-  --danger-soft: #2a1520;
-  --danger-line: #5d2a38;
-  --warning: #f5cf7a;
-  --warning-soft: #2a2213;
-  --warning-line: #5d4a1f;
-  --success: #86e0a5;
-  --success-soft: #112a1d;
-  --success-line: #1f5a3a;
-  --info: #9cc0ff;
-  --info-soft: #11213f;
-  --info-line: #26457d;
+  --danger: #ff9a9a;
+  --danger-soft: #3f1e27;
+  --danger-line: #8f3b4a;
+  --warning: #f5cd68;
+  --warning-soft: #3a3010;
+  --warning-line: #85692a;
+  --success: #86e89a;
+  --success-soft: #0e4630;
+  --success-line: #22835a;
+  --info: #9dbeff;
+  --info-soft: #12315f;
+  --info-line: #3a68b0;
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 32px -8px rgba(0, 0, 0, 0.55);
-  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.35), 0 22px 56px -12px rgba(0, 0, 0, 0.7);
-  --glow-a: rgba(99, 102, 241, 0.22);
-  --glow-b: rgba(14, 165, 233, 0.12);
+  --accent: #4fb8b4;
+  --field: #0c4856;
+  --focus: #4fb8b4;
+  --on-brand-hover: #04222b;
+  --nav-active-bg: #1b808a;
+  --nav-active-ink: #ffffff;
+  --danger-solid: #bb3737;
+  --warning-solid: #9c5406;
+  --success-solid: #14773b;
+  --info-solid: #2f5fd0;
+  --neutral-solid: #436e74;
+  --logo-a: #1d8b94;
+  --logo-b: #10606f;
+
+  --shadow-card: 0 1px 2px rgba(1, 14, 18, 0.35), 0 10px 32px -8px rgba(1, 14, 18, 0.6);
+  --shadow-pop: 0 2px 6px rgba(1, 14, 18, 0.4), 0 22px 56px -12px rgba(1, 14, 18, 0.75);
+  --glow-a: rgba(29, 139, 148, 0.24);
+  --glow-b: rgba(79, 184, 180, 0.12);
 }
 
 /* Map the tokens to Tailwind utility names: bg-surface, text-muted, border-line, bg-brand ... */
@@ -97,6 +130,16 @@
   --color-brand-hover: var(--brand-solid-hover);
   --color-brand-text: var(--brand-text);
   --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-field: var(--field);
+  --color-on-brand-hover: var(--on-brand-hover);
+  --color-nav-active: var(--nav-active-bg);
+  --color-nav-active-ink: var(--nav-active-ink);
+  --color-danger-solid: var(--danger-solid);
+  --color-warning-solid: var(--warning-solid);
+  --color-success-solid: var(--success-solid);
+  --color-info-solid: var(--info-solid);
+  --color-neutral-solid: var(--neutral-solid);
 
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
@@ -138,7 +181,7 @@
     background: var(--brand-ring);
   }
   :focus-visible {
-    outline: 2px solid var(--brand-solid);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
     border-radius: 6px;
   }

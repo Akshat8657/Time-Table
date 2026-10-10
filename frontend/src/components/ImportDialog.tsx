@@ -153,7 +153,7 @@ export function ImportDialog({
               <p className="mb-2 text-sm font-semibold text-ink">2. Choose your filled sheet</p>
               <label
                 htmlFor="import-file"
-                className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line-strong bg-surface px-4 py-6 text-center transition-colors hover:border-brand hover:bg-hover"
+                className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line-strong bg-surface px-4 py-6 text-center transition-colors hover:border-accent hover:bg-hover"
               >
                 <Upload className="size-6 text-subtle" aria-hidden="true" />
                 <span className="text-sm font-medium text-ink">{file ? file.name : 'Click to choose an .xlsx file'}</span>

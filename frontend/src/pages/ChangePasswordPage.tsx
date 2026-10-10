@@ -12,10 +12,10 @@ import { HOME } from '../lib/nav'
 
 const STRENGTH = [
   { label: 'Too short', bar: 'bg-line-strong', text: 'text-subtle' },
-  { label: 'Weak', bar: 'bg-danger', text: 'text-danger' },
-  { label: 'Fair', bar: 'bg-warning', text: 'text-warning' },
-  { label: 'Good', bar: 'bg-info', text: 'text-info' },
-  { label: 'Strong', bar: 'bg-success', text: 'text-success' },
+  { label: 'Weak', bar: 'bg-danger-solid', text: 'text-danger' },
+  { label: 'Fair', bar: 'bg-warning-solid', text: 'text-warning' },
+  { label: 'Good', bar: 'bg-info-solid', text: 'text-info' },
+  { label: 'Strong', bar: 'bg-success-solid', text: 'text-success' },
 ] as const
 
 /** Only a friendly hint - the server makes the real decision. */

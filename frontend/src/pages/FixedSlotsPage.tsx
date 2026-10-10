@@ -34,7 +34,7 @@ interface Preset {
 const KIND_STYLE: Record<Kind, string> = {
   PE: 'border-success-line bg-success-soft text-success',
   SOL: 'border-info-line bg-info-soft text-info',
-  OTHER: 'border-brand/40 bg-brand-soft text-brand-text',
+  OTHER: 'border-accent/40 bg-brand-soft text-brand-text',
 }
 const KIND_NAME: Record<Kind, string> = { PE: 'PE', SOL: 'SOL', OTHER: 'Locked' }
 
@@ -172,7 +172,7 @@ function WeekGrid({
                       type="button"
                       onClick={() => onAdd(d.day, row.number)}
                       aria-label={`Lock ${d.name} period ${row.number}`}
-                      className="group flex h-full min-h-[3.5rem] w-full items-center justify-center rounded-lg border border-dashed border-line-strong text-subtle transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-text"
+                      className="group flex h-full min-h-[3.5rem] w-full items-center justify-center rounded-lg border border-dashed border-line-strong text-subtle transition-colors hover:border-accent hover:bg-brand-soft hover:text-brand-text"
                     >
                       <Plus className="size-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true" />
                     </button>
@@ -329,7 +329,7 @@ function SlotDialog({
               <legend className="mb-2 text-[13px] font-medium text-ink">What is it?</legend>
               <div className="grid gap-2.5 sm:grid-cols-3">
                 {(['PE', 'SOL', 'OTHER'] as Kind[]).map((k) => (
-                  <label key={k} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-colors ${form.kind === k ? 'border-brand bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
+                  <label key={k} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-colors ${form.kind === k ? 'border-accent bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
                     <input type="radio" name="slot-kind" className="size-4 accent-[var(--brand-solid)]" checked={form.kind === k} onChange={() => set('kind', k)} />
                     {k === 'PE' ? 'PE - Physical Education' : k === 'SOL' ? 'SOL - Science of Living' : 'Something else'}
                   </label>
@@ -350,7 +350,7 @@ function SlotDialog({
                 return (
                   <label
                     key={c.semester_id}
-                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${none ? 'cursor-not-allowed border-line bg-surface-2 text-subtle' : on ? 'cursor-pointer border-brand bg-brand-soft font-medium text-brand-text' : 'cursor-pointer border-line-strong bg-surface text-muted hover:bg-hover'}`}
+                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${none ? 'cursor-not-allowed border-line bg-surface-2 text-subtle' : on ? 'cursor-pointer border-accent bg-brand-soft font-medium text-brand-text' : 'cursor-pointer border-line-strong bg-surface text-muted hover:bg-hover'}`}
                   >
                     <input type="checkbox" className="size-4 accent-[var(--brand-solid)]" checked={on} disabled={none} onChange={() => toggleClass(c.semester_id)} />
                     <span className="min-w-0 flex-1 truncate">{c.label}</span>

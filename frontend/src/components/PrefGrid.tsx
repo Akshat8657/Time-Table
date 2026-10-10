@@ -16,7 +16,7 @@ const WORDS: Record<Tool, string> = { available: 'Available', preferred: 'Prefer
 function Mark({ kind }: { kind: Tool }) {
   if (kind === 'preferred') return <Star className="size-[18px] fill-warning text-warning" aria-hidden="true" />
   if (kind === 'unavailable') return <Ban className="size-[18px] text-danger" aria-hidden="true" />
-  return <Check className="size-4 text-subtle/50" aria-hidden="true" />
+  return <Check className="size-4 text-subtle/50 dark:text-subtle/75" aria-hidden="true" />
 }
 
 const CELL: Record<Tool, string> = {
@@ -172,7 +172,7 @@ export function PrefGrid({ grid, days, slots, lockedDays, editable, limit, onCha
                           data-kind={locked ? 'locked' : kind}
                           className={`flex h-11 w-full touch-manipulation items-center justify-center rounded-lg transition-colors ${
                             locked ? 'cursor-not-allowed bg-surface-2 opacity-50' : `${CELL[kind]} ${editable ? 'cursor-pointer' : 'cursor-default'}`
-                          } focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand`}
+                          } focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}
                         >
                           {locked ? <Lock className="size-3.5 text-subtle" aria-hidden="true" /> : <Mark kind={kind} />}
                         </button>

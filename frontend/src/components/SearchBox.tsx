@@ -22,7 +22,7 @@ export function SearchBox({
         placeholder={placeholder}
         aria-label={placeholder}
         maxLength={80}
-        className="block h-10 w-full rounded-xl border border-line-strong bg-surface pl-10 pr-9 text-sm text-ink placeholder:text-subtle transition-colors focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] [&::-webkit-search-cancel-button]:hidden"
+        className="block h-10 w-full rounded-xl border border-line-strong bg-field pl-10 pr-9 text-sm text-ink placeholder:text-subtle transition-colors focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)] [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button

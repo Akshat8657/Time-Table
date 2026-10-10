@@ -73,7 +73,7 @@ function TermSelector() {
               <label
                 key={card.kind}
                 className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                  selected ? 'border-brand bg-brand-soft' : 'border-line-strong bg-surface hover:bg-hover'
+                  selected ? 'border-accent bg-brand-soft' : 'border-line-strong bg-surface hover:bg-hover'
                 }`}
               >
                 <input
@@ -229,14 +229,14 @@ function SemesterDates({ term }: { term: Term }) {
                       aria-label={`Start date of ${c.label}`}
                       value={dates[c.semester_id]?.start ?? ''}
                       onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], start: e.target.value } })}
-                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                      className="h-9 w-full rounded-lg border border-line-strong bg-field px-2 text-sm focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
                     />
                     <input
                       type="date"
                       aria-label={`End date of ${c.label}`}
                       value={dates[c.semester_id]?.end ?? ''}
                       onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], end: e.target.value } })}
-                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                      className="h-9 w-full rounded-lg border border-line-strong bg-field px-2 text-sm focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
                     />
                   </div>
                 </div>
@@ -253,7 +253,7 @@ function SemesterDates({ term }: { term: Term }) {
                       aria-label={`Start date of ${c.label}`}
                       value={dates[c.semester_id]?.start ?? ''}
                       onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], start: e.target.value } })}
-                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2.5 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                      className="h-9 w-full rounded-lg border border-line-strong bg-field px-2.5 text-sm focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
                     />
                   ),
                 },
@@ -267,7 +267,7 @@ function SemesterDates({ term }: { term: Term }) {
                       aria-label={`End date of ${c.label}`}
                       value={dates[c.semester_id]?.end ?? ''}
                       onChange={(e) => setDates({ ...dates, [c.semester_id]: { ...dates[c.semester_id], end: e.target.value } })}
-                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-2.5 text-sm focus:border-brand focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
+                      className="h-9 w-full rounded-lg border border-line-strong bg-field px-2.5 text-sm focus:border-accent focus:outline-none focus:ring-4 focus:ring-[color:var(--brand-ring)]"
                     />
                   ),
                 },

@@ -28,7 +28,7 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate: () => vo
       onClick={onNavigate}
       className={({ isActive }) =>
         `group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-          isActive ? 'bg-brand-soft text-brand-text' : 'text-muted hover:bg-hover hover:text-ink'
+          isActive ? 'bg-nav-active text-nav-active-ink' : 'text-muted hover:bg-hover hover:text-ink'
         }`
       }
     >
@@ -96,7 +96,7 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
         <div className="flex items-center gap-3">
           <span
             aria-hidden="true"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 text-sm font-semibold text-white"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 dark:from-[#1d8b94] dark:to-[#10606f] text-sm font-semibold text-white"
           >
             {initials(user.full_name)}
           </span>
@@ -215,7 +215,7 @@ function ShellLayout() {
       {/* mobile drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute inset-0 bg-slate-950/50 dark:bg-[#02141a]/65 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} />
           <aside className="animate-slide absolute inset-y-0 left-0 w-[18.5rem] max-w-[85vw] border-r border-line bg-surface shadow-pop">
             <button
               type="button"

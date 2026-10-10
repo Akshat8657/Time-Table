@@ -156,7 +156,7 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                         aria-label={`${p.entries.map((e) => e.subject_name).join(' and ')}, ${x.name} ${periodsText(p.start_period, p.length)}${bad ? ', has a clash' : ''}`}
                         title={bad ? p.problems.join(' ') : p.is_locked ? 'Pinned: the generator keeps it here. Unpin to move it.' : swap ? (swap.ok ? 'Click to swap places' : `Cannot swap: ${swap.reasons[0]}`) : 'Click to move or remove'}
                         style={{ ['--h' as string]: hue }}
-                        className={`group relative flex h-full min-h-[3.75rem] w-full cursor-pointer flex-col justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-left transition hover:brightness-95 focus-visible:outline-2 ${bad ? 'border-danger bg-danger-soft text-danger' : 'subj-chip'} ${isPicked ? 'ring-2 ring-brand' : ''} ${swap ? (swap.ok ? 'ring-2 ring-success-line' : 'opacity-50') : ''} ${p.is_locked ? 'ring-2 ring-warning-line' : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
+                        className={`group relative flex h-full min-h-[3.75rem] w-full cursor-pointer flex-col justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-left transition hover:brightness-95 focus-visible:outline-2 ${bad ? 'border-danger bg-danger-soft text-danger' : 'subj-chip'} ${isPicked ? 'ring-2 ring-accent' : ''} ${swap ? (swap.ok ? 'ring-2 ring-success-line' : 'opacity-50') : ''} ${p.is_locked ? 'ring-2 ring-warning-line' : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
                       >
                         {p.entries.map((e) => (
                           <span key={e.id} className="block leading-tight">
@@ -170,14 +170,14 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                           </span>
                         ))}
                         <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10.5px] font-medium opacity-80">
-                          {p.is_lab && <span className="rounded bg-black/10 px-1">Lab · 2 periods</span>}
+                          {p.is_lab && <span className="rounded bg-black/10 px-1 dark:bg-white/10">Lab · 2 periods</span>}
                           {p.parallel && (
-                            <span className="inline-flex items-center gap-0.5 rounded bg-black/10 px-1">
+                            <span className="inline-flex items-center gap-0.5 rounded bg-black/10 px-1 dark:bg-white/10">
                               <Layers className="size-3" aria-hidden="true" /> Parallel
                             </span>
                           )}
                           {p.is_locked && (
-                            <span className="inline-flex items-center gap-0.5 rounded bg-black/10 px-1">
+                            <span className="inline-flex items-center gap-0.5 rounded bg-black/10 px-1 dark:bg-white/10">
                               <Pin className="size-3" aria-hidden="true" /> Pinned
                             </span>
                           )}
@@ -193,7 +193,7 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                             }}
                             aria-label={p.is_locked ? `Unpin ${p.entries.map((e) => e.subject_name).join(' and ')}` : `Pin ${p.entries.map((e) => e.subject_name).join(' and ')} (the generator keeps it here)`}
                             title={p.is_locked ? 'Unpin' : 'Pin: the generator keeps it exactly here'}
-                            className="rounded-md bg-black/10 p-0.5"
+                            className="rounded-md bg-black/10 p-0.5 dark:bg-white/10"
                           >
                             {p.is_locked ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
                           </button>
@@ -205,7 +205,7 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                                 onRemove(p)
                               }}
                               aria-label={`Remove ${p.entries.map((e) => e.subject_name).join(' and ')}`}
-                              className="rounded-md bg-black/10 p-0.5"
+                              className="rounded-md bg-black/10 p-0.5 dark:bg-white/10"
                             >
                               <X className="size-3.5" />
                             </button>
@@ -260,7 +260,7 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                 const inSpan = hover && picked && hover.day === x.day && row.number >= hover.start && row.number < hover.start + length
                 const cellId = `${x.day}:${row.number}`
                 const tone = !picked
-                  ? 'border-dashed border-line-strong text-subtle hover:border-brand hover:bg-brand-soft'
+                  ? 'border-dashed border-line-strong text-subtle hover:border-accent hover:bg-brand-soft'
                   : !opt
                     ? 'border-dashed border-line-strong'
                     : opt.state === 'ok'
@@ -280,7 +280,7 @@ const WeekGrid = memo(function WeekGrid({ d, hues, picked, options, hover, flash
                       onMouseLeave={() => onHover(null)}
                       aria-label={`${x.name} period ${row.number}${picked ? (opt ? `: ${opt.state === 'blocked' ? 'not possible' : opt.state === 'warn' ? 'possible with a warning' : 'possible'}` : '') : ''}`}
                       title={opt ? (opt.state === 'blocked' ? opt.hard[0] : opt.soft[0] ?? 'Possible') : undefined}
-                      className={`flex h-full min-h-[3.75rem] w-full items-center justify-center rounded-lg border text-xs font-medium transition-colors ${tone} ${inSpan ? 'ring-2 ring-brand' : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
+                      className={`flex h-full min-h-[3.75rem] w-full items-center justify-center rounded-lg border text-xs font-medium transition-colors ${tone} ${inSpan ? 'ring-2 ring-accent' : ''} ${flash === cellId ? 'cell-pulse' : ''}`}
                     >
                       {picked && opt?.state === 'blocked' && <Ban className="size-4 text-danger opacity-70" aria-hidden="true" />}
                       {picked && opt?.state === 'ok' && <span className="text-success">Place here</span>}
@@ -332,7 +332,7 @@ function PaletteCard({
       onClick={onPick}
       aria-pressed={selected}
       style={{ ['--h' as string]: hue }}
-      className={`w-full cursor-grab rounded-xl border px-3 py-2.5 text-left transition active:cursor-grabbing ${selected ? 'border-brand bg-brand-soft ring-2 ring-brand' : 'border-line bg-surface hover:border-line-strong hover:bg-hover'}`}
+      className={`w-full cursor-grab rounded-xl border px-3 py-2.5 text-left transition active:cursor-grabbing ${selected ? 'border-accent bg-brand-soft ring-2 ring-accent' : 'border-line bg-surface hover:border-line-strong hover:bg-hover'}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-start gap-2">
@@ -347,7 +347,7 @@ function PaletteCard({
         <StatusBadge status={status} placed={placed} required={required} />
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-inset ring-line">
-        <div className={`h-full rounded-full ${status === 'complete' ? 'bg-[var(--success)]' : status === 'over' ? 'bg-[var(--info)]' : 'bg-brand'}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full ${status === 'complete' ? 'bg-success-solid' : status === 'over' ? 'bg-info-solid' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
       </div>
       {badges.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
@@ -751,7 +751,7 @@ export default function DraftEditorPage() {
           <div
             aria-live="polite"
             className={`${picked ? 'hidden sm:flex' : 'flex'} min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-2.5 text-sm ${
-              !picked ? 'border-line bg-surface text-muted' : hoverOpt?.state === 'blocked' || (swapInfo && !swapInfo.ok) ? 'border-danger-line bg-danger-soft text-danger' : hoverOpt?.state === 'warn' ? 'border-warning-line bg-warning-soft text-warning' : 'border-brand/40 bg-brand-soft text-brand-text'
+              !picked ? 'border-line bg-surface text-muted' : hoverOpt?.state === 'blocked' || (swapInfo && !swapInfo.ok) ? 'border-danger-line bg-danger-soft text-danger' : hoverOpt?.state === 'warn' ? 'border-warning-line bg-warning-soft text-warning' : 'border-accent/40 bg-brand-soft text-brand-text'
             }`}
           >
             {!picked ? (
@@ -835,7 +835,7 @@ export default function DraftEditorPage() {
               <span className="tabular-nums font-semibold text-ink">{comp.percent}%</span>
             </div>
             <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-inset ring-line" role="progressbar" aria-valuenow={comp.percent} aria-valuemin={0} aria-valuemax={100}>
-              <div className={`h-full rounded-full transition-all ${comp.percent === 100 ? 'bg-[var(--success)]' : 'bg-brand'}`} style={{ width: `${comp.percent}%` }} />
+              <div className={`h-full rounded-full transition-all ${comp.percent === 100 ? 'bg-success-solid' : 'bg-accent'}`} style={{ width: `${comp.percent}%` }} />
             </div>
             <p className="mt-2 text-xs text-muted">
               {comp.placed} of {comp.required} lectures placed (the weekly lectures of each subject - its credits unless the HOD set another number; a lab is one 2-period block; PE / SOL come from their locked slots).
@@ -878,7 +878,7 @@ export default function DraftEditorPage() {
 
       {/* phone: what is picked up stays visible while the cells are tapped */}
       {picked && (
-        <div className="fixed inset-x-3 bottom-3 z-30 flex items-center gap-2 rounded-xl border border-brand/40 bg-surface px-4 py-3 shadow-pop lg:hidden">
+        <div className="fixed inset-x-3 bottom-3 z-30 flex items-center gap-2 rounded-xl border border-accent/40 bg-surface px-4 py-3 shadow-pop lg:hidden">
           <p className="min-w-0 flex-1 text-sm">
             <span className="font-semibold text-ink">{picked.kind === 'move' ? 'Moving' : 'Placing'} “{picked.name}”</span>
             <span className="block text-xs text-muted">Tap a green or amber cell{picked.kind === 'move' ? ', or another lecture to swap' : ''}.</span>

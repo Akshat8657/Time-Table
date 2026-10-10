@@ -388,13 +388,13 @@ function SetupChecklist({ setup }: { setup: Setup | null | undefined }) {
       ) : (
         <>
           <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line" role="presentation">
-            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.round((done / steps.length) * 100)}%` }} />
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((done / steps.length) * 100)}%` }} />
           </div>
           <ol className="space-y-1.5">
             {steps.map((step) => (
               <li key={step.label}>
                 <Link to={step.to} className="group flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-hover">
-                  <span className={`flex size-6 shrink-0 items-center justify-center rounded-full ${step.done ? 'bg-success text-white' : 'bg-surface-2 text-subtle ring-1 ring-line-strong'}`}>
+                  <span className={`flex size-6 shrink-0 items-center justify-center rounded-full ${step.done ? 'bg-success-solid text-white' : 'bg-surface-2 text-subtle ring-1 ring-line-strong'}`}>
                     {step.done ? <Check className="size-3.5" strokeWidth={3} aria-hidden="true" /> : <CircleDashed className="size-3.5" aria-hidden="true" />}
                   </span>
                   <span className="min-w-0 flex-1">

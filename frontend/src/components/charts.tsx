@@ -6,12 +6,12 @@ import type { ReactNode } from 'react'
  */
 export type Tone = 'brand' | 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
-const BG: Record<Tone, string> = { brand: 'bg-brand', success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', info: 'bg-info', neutral: 'bg-subtle' }
+const BG: Record<Tone, string> = { brand: 'bg-accent', success: 'bg-success-solid', warning: 'bg-warning-solid', danger: 'bg-danger-solid', info: 'bg-info-solid', neutral: 'bg-neutral-solid' }
 const SOFT: Record<Tone, string> = {
   brand: 'bg-brand-soft', success: 'bg-success-soft', warning: 'bg-warning-soft', danger: 'bg-danger-soft', info: 'bg-info-soft', neutral: 'bg-surface-2',
 }
 const STROKE: Record<Tone, string> = {
-  brand: 'stroke-brand', success: 'stroke-success', warning: 'stroke-warning', danger: 'stroke-danger', info: 'stroke-info', neutral: 'stroke-subtle',
+  brand: 'stroke-accent', success: 'stroke-success-solid', warning: 'stroke-warning-solid', danger: 'stroke-danger-solid', info: 'stroke-info-solid', neutral: 'stroke-neutral-solid',
 }
 const TEXT: Record<Tone, string> = {
   brand: 'text-brand-text', success: 'text-success', warning: 'text-warning', danger: 'text-danger', info: 'text-info', neutral: 'text-muted',
@@ -205,7 +205,7 @@ export function PeriodStrip({ mask, periods, highlight }: { mask: boolean[]; per
             title={`Period ${n}${t ? ` (${t})` : ''}: ${free ? 'free' : 'teaching / busy'}`}
             className={`flex size-7 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums ring-1 ring-inset ${
               free ? `${SOFT.success} text-success ring-success-line` : 'bg-surface-2 text-subtle ring-line line-through decoration-subtle/60'
-            } ${highlight === n ? 'outline outline-2 outline-offset-1 outline-brand' : ''}`}
+            } ${highlight === n ? 'outline outline-2 outline-offset-1 outline-accent' : ''}`}
           >
             {n}
           </span>

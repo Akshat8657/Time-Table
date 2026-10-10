@@ -133,7 +133,7 @@ function EntryDialog({
             <legend className="mb-2 text-[13px] font-medium text-ink">Who is it for?</legend>
             <div className="grid gap-2.5 sm:grid-cols-2">
               {(['college', 'school'] as const).map((s) => (
-                <label key={s} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${form.scope === s ? 'border-brand bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
+                <label key={s} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${form.scope === s ? 'border-accent bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
                   <input type="radio" name="entry-scope" className="size-4 accent-[var(--brand-solid)]" checked={form.scope === s} onChange={() => set('scope', s)} />
                   {s === 'college' ? 'The whole college' : (scope.schoolName ?? 'The chosen school')}
                 </label>
@@ -147,7 +147,7 @@ function EntryDialog({
             <legend className="mb-2 text-[13px] font-medium text-ink">What is it?</legend>
             <div className="grid gap-2.5 sm:grid-cols-2">
               {(['holiday', 'event'] as const).map((k) => (
-                <label key={k} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${form.kind === k ? 'border-brand bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
+                <label key={k} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${form.kind === k ? 'border-accent bg-brand-soft text-brand-text' : 'border-line-strong bg-surface text-muted hover:bg-hover'}`}>
                   <input type="radio" name="entry-kind" className="size-4 accent-[var(--brand-solid)]" checked={form.kind === k} onChange={() => set('kind', k)} />
                   {k === 'holiday' ? 'Holiday - no lectures' : 'Event - blocks the slots'}
                 </label>
@@ -302,7 +302,7 @@ export default function HolidaysPage() {
                     const past = e.date_to < today
                     const day = Number(e.date_from.slice(8))
                     return (
-                      <li key={e.id} className={`flex items-start gap-4 rounded-2xl border border-line bg-surface p-4 shadow-card ${past ? 'opacity-60' : ''}`}>
+                      <li key={e.id} className={`flex items-start gap-4 rounded-2xl border border-line bg-surface p-4 shadow-card ${past ? 'opacity-60 dark:opacity-80' : ''}`}>
                         <div className={`flex size-14 shrink-0 flex-col items-center justify-center rounded-xl ${e.kind === 'holiday' ? 'bg-success-soft text-success' : 'bg-brand-soft text-brand-text'}`}>
                           <span className="text-lg font-semibold leading-none tabular-nums">{day}</span>
                           <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide">{SHORT[m - 1]}</span>

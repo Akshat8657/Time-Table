@@ -37,7 +37,7 @@ export function Tabs<T extends string>({
             {item.icon}
             {item.label}
             {item.count !== undefined && (
-              <span className={`rounded-full px-1.5 text-xs tabular-nums ${active ? 'bg-brand-soft text-brand-text' : 'bg-line text-muted'}`}>
+              <span className={`rounded-full px-1.5 text-xs tabular-nums ${active ? 'bg-brand-soft text-brand-text' : 'bg-line text-muted dark:text-ink'}`}>
                 {item.count}
               </span>
             )}

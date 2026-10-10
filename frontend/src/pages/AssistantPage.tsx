@@ -268,7 +268,7 @@ export default function AssistantPage() {
               placeholder="Type here, e.g. Aaj kon kon free hai?"
               aria-label="Message to the assistant"
               autoComplete="off"
-              className="h-11 min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3.5 text-[15px] text-ink placeholder:text-subtle focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-line-strong bg-field px-3.5 text-[15px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
               data-testid="assistant-input"
             />
             <Button type="submit" size="lg" disabled={!text.trim() || busy} icon={<Send className="size-4" aria-hidden="true" />} data-testid="assistant-send">
@@ -383,7 +383,7 @@ function MessageView({
                 type="button"
                 disabled={disabled}
                 onClick={() => onPick(o)}
-                className="rounded-full border border-brand/40 bg-brand-soft px-3.5 py-1.5 text-sm font-medium text-brand-text transition-colors hover:bg-brand-soft/70 disabled:opacity-60"
+                className="rounded-full border border-accent/40 bg-brand-soft px-3.5 py-1.5 text-sm font-medium text-brand-text transition-colors hover:bg-brand-soft/70 disabled:opacity-60"
                 data-testid="assistant-option"
               >
                 {o.label}

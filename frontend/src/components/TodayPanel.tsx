@@ -18,7 +18,7 @@ function Lecture({ c, state }: { c: ViewCell; state: 'now' | 'next' | null }) {
   const classes = c.classes.map((x) => x.label).join(' + ')
   return (
     <li
-      className={`flex items-stretch gap-3 rounded-xl border px-3 py-2.5 ${state === 'now' ? 'border-brand bg-brand-soft/60' : 'border-line bg-surface'} ${cancelled ? 'opacity-70' : ''}`}
+      className={`flex items-stretch gap-3 rounded-xl border px-3 py-2.5 ${state === 'now' ? 'border-accent bg-brand-soft/60' : 'border-line bg-surface'} ${cancelled ? 'opacity-70' : ''}`}
       data-testid="today-lecture"
       data-status={c.status ?? 'ok'}
     >

@@ -24,7 +24,7 @@ export function NotificationRow({ n, onOpen, compact = false }: { n: Notificatio
       onClick={() => onOpen(n)}
       className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-hover ${n.is_read ? '' : 'bg-brand-soft/50'}`}
     >
-      <span className={`mt-1.5 size-2 shrink-0 rounded-full ${n.is_read ? 'bg-transparent' : 'bg-brand'}`} aria-label={n.is_read ? undefined : 'Unread'} />
+      <span className={`mt-1.5 size-2 shrink-0 rounded-full ${n.is_read ? 'bg-transparent' : 'bg-accent'}`} aria-label={n.is_read ? undefined : 'Unread'} />
       <span className="min-w-0 flex-1">
         <span className={`block text-sm ${n.is_read ? 'font-medium text-ink' : 'font-semibold text-ink'}`}>{n.title}</span>
         {n.body && <span className={`mt-0.5 block text-[13px] leading-snug text-muted ${compact ? 'line-clamp-2' : ''}`}>{n.body}</span>}
@@ -80,7 +80,7 @@ export function NotificationBell() {
         {unread > 0 ? <BellRing className="size-5" aria-hidden="true" /> : <Bell className="size-5" aria-hidden="true" />}
         {unread > 0 && (
           <span
-            className="absolute -right-0.5 -top-0.5 flex min-w-[1.15rem] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold leading-[1.15rem] text-white ring-2 ring-surface"
+            className="absolute -right-0.5 -top-0.5 flex min-w-[1.15rem] items-center justify-center rounded-full bg-danger-solid px-1 text-[11px] font-bold leading-[1.15rem] text-white ring-2 ring-surface"
             data-testid="bell-count"
           >
             {unread > 99 ? '99+' : unread}

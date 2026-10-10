@@ -241,7 +241,7 @@ export function AccountDialog({ open, onClose, account, defaultRole = 'teacher',
                         <label
                           key={name}
                           className={`cursor-pointer select-none rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-                            on ? 'border-brand bg-brand text-white' : 'border-line-strong bg-surface text-muted hover:bg-hover'
+                            on ? 'border-accent bg-brand text-white' : 'border-line-strong bg-surface text-muted hover:bg-hover'
                           }`}
                         >
                           <input

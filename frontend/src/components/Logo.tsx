@@ -6,8 +6,8 @@ export function LogoMark({ size = 36 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
       <defs>
         <linearGradient id={gradient} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#6366f1" />
-          <stop offset="1" stopColor="#4338ca" />
+          <stop offset="0" style={{ stopColor: 'var(--logo-a)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--logo-b)' }} />
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="16" fill={`url(#${gradient})`} />

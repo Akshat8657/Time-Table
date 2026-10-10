@@ -77,7 +77,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="presentation">
       <div
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-slate-950/55 dark:bg-[#02141a]/70 backdrop-blur-[2px]"
         onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />

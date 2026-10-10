@@ -252,7 +252,7 @@ export default function AssignmentPage() {
                       </span>
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line" role="presentation">
-                      <div className={`h-full rounded-full ${over ? 'bg-danger' : 'bg-brand'}`} style={{ width: `${pct}%` }} />
+                      <div className={`h-full rounded-full ${over ? 'bg-danger-solid' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
                     </div>
                     {t.is_visiting && (
                       <p className="mt-1 text-xs text-muted">
