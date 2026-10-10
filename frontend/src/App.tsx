@@ -1,5 +1,5 @@
 import { lazy, type ComponentType } from 'react'
-import { Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider'
 import { PublicOnly, RequireAuth, RequireRole, RoleRedirect } from './auth/guards'
 import { CookieBanner } from './consent/CookieBanner'
@@ -39,6 +39,7 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
   'my-preferences': lazy(() => import('./pages/MyPreferencesPage')),
   reports: lazy(() => import('./pages/ReportsPage')),
   'audit-log': lazy(() => import('./pages/AuditLogPage')),
+  'ai-assistant': lazy(() => import('./pages/AssistantPage')),
 }
 
 // the weekly grid editor of one draft (a sub-page of "Generate Timetable")
@@ -98,7 +99,9 @@ const PREF_CONSOLE: Partial<Record<Role, string>> = { hod: '/hod/preferences', a
 /** A notification link that is the same for everybody ("/substitutions") lands each manager on their own console. */
 function ConsoleRedirect({ map = CONSOLE }: { map?: Partial<Record<Role, string>> }) {
   const { user } = useAuth()
-  return <Navigate to={(user && map[user.role]) ?? (user ? HOME[user.role] : '/')} replace />
+  const { search } = useLocation()   // "?date=..." survives the redirect
+  const target = user && map[user.role]
+  return <Navigate to={target ? target + search : user ? HOME[user.role] : '/'} replace />
 }
 
 function MyRedirect() {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, FileText, Inbox, Repeat, Send, UserX, X,
 } from 'lucide-react'
@@ -38,7 +38,12 @@ export default function SubstitutionsPage() {
   const { active, ready: termReady } = useTerm()
   const prefix = user ? ROLE_PREFIX[user.role] : ''
   const [tab, setTab] = useState<Tab>('today')
-  const [date, setDate] = useState(todayIso())
+  // a link can open a particular day ("/substitutions?date=2026-10-12" - the AI assistant uses it after marking an absence)
+  const [params] = useSearchParams()
+  const [date, setDate] = useState(() => {
+    const wanted = params.get('date') ?? ''
+    return /^\d{4}-\d{2}-\d{2}$/.test(wanted) ? wanted : todayIso()
+  })
   const enabled = scope.ready && !!scope.schoolId && !!active
   const options = useApi<ViewOptions>(enabled ? scope.path('/views/options') : null)
   const subs = useApi<{ date: string; substitutions: Substitution[]; summary: Record<string, number> }>(enabled && tab === 'today' ? scope.path(`/subs?date=${date}`) : null)

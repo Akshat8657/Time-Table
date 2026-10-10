@@ -544,7 +544,9 @@ def test_drafts_cannot_be_read_by_teachers_or_visitors_and_nobody_writes_through
 
     assert visible(p1.teacher) == [] and visible(p1.teacher_b) == []                                           # teachers: nothing, even in their own school
     assert {row["school_id"] for row in visible(p1.hod)} == {p1.school}                                        # the HOD: own school only
-    assert p1.school in {row["school_id"] for row in visible(p1.admin)}                                        # the admin sees them too
+    # the admin sees them too (asked for this school only: the data API returns at most 1000 rows, and the real school now holds more drafts than that)
+    admin_rows = rest("GET", f"/{table}?select=school_id&school_id=eq.{p1.school}", p1.admin.token)
+    assert admin_rows.status_code == 200 and p1.school in {row["school_id"] for row in admin_rows.json()}
     before = db_val(f"select count(*) from public.{table}")
     for who in (p1.admin, p1.hod, p1.teacher):
         assert rest("POST", f"/{table}", who.token, json={"school_id": p1.school}).status_code in (401, 403)

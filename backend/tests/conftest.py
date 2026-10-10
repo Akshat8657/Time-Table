@@ -31,6 +31,7 @@ if str(BACKEND_DIR) not in sys.path:
 from app.config import ENV_FILE, get_settings  # noqa: E402
 from app.db import connect_one  # noqa: E402
 from app.supabase_auth import SupabaseAuth  # noqa: E402
+from tests.fake_gemini import FAKE_KEY, FakeGemini  # noqa: E402
 
 TEST_PORT = 8001
 BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
@@ -189,6 +190,13 @@ def server():
     env["LOGIN_MAX_FAILED_ATTEMPTS"] = str(LOCKOUT_AFTER)
     env["SESSION_CACHE_SECONDS"] = "0"  # these tests edit sessions straight in the database -> check it on every request
     env["DB_POOL_MIN"], env["DB_POOL_MAX"] = "2", "3"  # the session pooler allows only 15 connections for ALL programs together
+    # Phase 7: the API under test talks to a LOCAL pretend Gemini (tests/fake_gemini.py) - deterministic, and it never spends the real free quota
+    fake = FakeGemini()
+    fake.start()
+    _FAKE["gemini"] = fake
+    env["GEMINI_API_KEY"], env["GEMINI_MODELS"] = FAKE_KEY, "fake-model-1,fake-model-2"
+    env["GEMINI_BASE_URL"] = f"http://127.0.0.1:{fake.port}/v1beta"
+    env["ASSISTANT_MESSAGES_PER_MINUTE"], env["GEMINI_COOLDOWN_SCALE"] = "200", "0.04"
     # (the in-memory session cache has its own tests in test_p1_session_cache.py, on a second server)
     log_path = BACKEND_DIR / "tests" / "_server.log"
     log = open(log_path, "w", encoding="utf-8")
@@ -212,11 +220,21 @@ def server():
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+        fake.stop()
         log.close()
         try:
             log_path.unlink()
         except OSError:
             pass
+
+
+_FAKE: dict[str, FakeGemini] = {}
+
+
+@pytest.fixture(scope="session")
+def fake_gemini(server) -> FakeGemini:
+    """The pretend Gemini the test server talks to (script its answers, read the requests it received)."""
+    return _FAKE["gemini"]
 
 
 @pytest.fixture(scope="session")

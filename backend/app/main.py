@@ -27,10 +27,11 @@ from .errors import ApiError
 from .migrations import pending_versions
 from .routers import auth as auth_routes
 from .routers import (
-    absence, adjust, assignments, audit_log, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, leave,
+    absence, adjust, assignments, assistant, audit_log, calendar, dashboards, drafts, exports, fixed_slots, generation, health, hours, imports, leave,
     notifications, prefs, profile, publish, reports, structure, subjects, subs, terms, timing, users, views,
 )
 from .security import sessions
+from .services import gemini
 from .security.jwt_verify import TokenVerifier
 from .security.rate_limit import AttemptLimiter
 from .supabase_auth import AuthError, SupabaseAuth
@@ -157,6 +158,7 @@ async def lifespan(app: FastAPI):
         sweep.cancel()
         pref_sweep.cancel()
         await auth.aclose()
+        await gemini.close()
         await db.close_pool()
 
 
@@ -308,6 +310,7 @@ app.include_router(adjust.router)
 app.include_router(prefs.router)
 app.include_router(reports.router)
 app.include_router(audit_log.router)
+app.include_router(assistant.router)
 app.include_router(notifications.router)
 app.include_router(notifications.push_router)
 app.include_router(calendar.router)

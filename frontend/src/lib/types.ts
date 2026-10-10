@@ -1287,3 +1287,127 @@ export interface AuditFacets {
   first: string | null
   last: string | null
 }
+
+// =====================================================================================
+//  Phase 7 - AI assistant (the answer is drawn from live data: the blocks below come from our own services)
+// =====================================================================================
+export interface AssistantExample {
+  label: string
+  message: string
+}
+
+export interface AssistantStatus {
+  configured: boolean
+  available: boolean
+  /** no_key | bad_key | quota | busy | network (null when available) */
+  reason: string | null
+  role: Role
+  /** a teacher gets the limited version */
+  limited: boolean
+  examples: AssistantExample[]
+  limit: number
+}
+
+export interface AssistantFreeTeacher {
+  name: string
+  specialization: string
+  role: string
+  school: string
+  free: { period: number; time: string }[]
+  free_count: number
+  /** HOD / admin only */
+  prefers_not?: boolean
+}
+
+export interface AssistantFreeBlock {
+  type: 'free_teachers'
+  date: string
+  period: number | null
+  time: string | null
+  length: number | null
+  now: boolean
+  periods: { period: number; time: string }[]
+  teachers: AssistantFreeTeacher[]
+  total: number
+  shown: number
+  notes: string[]
+}
+
+export interface AssistantCell {
+  day: number
+  start: number
+  length: number
+  time: string | null
+  title: string
+  teachers: string
+  classes: string[]
+  tags: string[]
+  tone: 'normal' | 'lab' | 'fixed' | 'off'
+}
+
+export interface AssistantTimetableBlock {
+  type: 'timetable'
+  mode: 'day' | 'week'
+  title: string
+  periods: { number: number; time: string }[]
+  lunch: string | null
+  days: { day: number; name: string; short: string; date: string; today: boolean; notes: string[] }[]
+  cells: AssistantCell[]
+  published: boolean
+  version: number | null
+  notes: string[]
+  empty_text: string
+}
+
+export interface AssistantFactsBlock {
+  type: 'facts'
+  title: string
+  rows: { label: string; value: string }[]
+}
+
+export interface AssistantListItem {
+  title: string
+  meta: string
+  tag: string
+}
+
+export interface AssistantListBlock {
+  type: 'list'
+  title: string
+  items: AssistantListItem[]
+  empty_text: string
+}
+
+export interface AssistantNoteBlock {
+  type: 'note'
+  tone: 'info' | 'warning'
+  text: string
+}
+
+export type AssistantBlock = AssistantFreeBlock | AssistantTimetableBlock | AssistantFactsBlock | AssistantListBlock | AssistantNoteBlock
+
+export interface AssistantAction {
+  id: string
+  tool: string
+  title: string
+  lines: { label: string; value: string }[]
+  items: AssistantListItem[]
+  note: string
+  confirm_label: string
+  cancel_label: string
+  expires_in: number
+}
+
+export interface AssistantReply {
+  kind: 'answer' | 'confirm' | 'clarify' | 'info' | 'refused' | 'unavailable' | 'done' | 'cancelled'
+  text: string
+  blocks: AssistantBlock[]
+  /** a clarification: tap one to answer (choice_id = our own single-use answer, message = a sentence to send) */
+  options: { label: string; choice_id?: string; message?: string }[]
+  links: { label: string; to: string }[]
+  action: AssistantAction | null
+  tool?: string
+  language: 'hinglish' | 'english'
+  reason?: string
+  hint?: string
+}

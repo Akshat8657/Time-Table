@@ -64,6 +64,19 @@ class Settings(BaseSettings):
     # Each offer also always expires at the lecture's start time, whichever comes first.
     substitution_offer_minutes: int = 10
 
+    # --- AI assistant (Phase 7). A FREE Gemini key from Google AI Studio. Empty = the assistant says "AI abhi available nahi hai"
+    # and the whole app keeps working through the normal buttons. The key is only ever read from .env - never printed, never logged.
+    gemini_api_key: str = ""
+    # Models are tried in this order; when one is out of free quota (or busy) the next one is used. Google retires old model
+    # names from time to time, so the list can be changed in .env without touching the code.
+    gemini_models: str = "gemini-3.5-flash-lite,gemini-flash-lite-latest,gemini-3.1-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_timeout_seconds: float = 20.0
+    # 1.0 = normal. Only the automatic tests make this tiny so a pretend 'quota over' answer does not rest a model for a whole minute.
+    gemini_cooldown_scale: float = 1.0
+    # a person may send this many chat messages per minute (protects the free quota)
+    assistant_messages_per_minute: int = 12
+
     # ------------------------------------------------------------------ validators
     @field_validator("supabase_url", mode="before")
     @classmethod
@@ -76,6 +89,11 @@ class Settings(BaseSettings):
         if not re.match(r"^https?://[^\s/]+$", v):
             raise ValueError("SUPABASE_URL should look like https://xxxxxxxx.supabase.co")
         return v
+
+    @field_validator("gemini_api_key", "gemini_models", "gemini_base_url", mode="before")
+    @classmethod
+    def _clean_text(cls, v: str) -> str:
+        return (v or "").strip().strip('"').strip("'").strip()
 
     @field_validator("supabase_anon_key", "supabase_service_role_key", "supabase_db_url", mode="before")
     @classmethod
@@ -106,6 +124,14 @@ class Settings(BaseSettings):
     @property
     def push_enabled(self) -> bool:
         return bool(self.vapid_public_key.strip() and self.vapid_private_key.strip())
+
+    @property
+    def ai_configured(self) -> bool:
+        return bool(self.gemini_api_key)
+
+    @property
+    def ai_models(self) -> list[str]:
+        return [m.strip() for m in self.gemini_models.split(",") if m.strip()]
 
     @property
     def is_dev(self) -> bool:

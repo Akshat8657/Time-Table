@@ -13,7 +13,7 @@ export type ScreenKey =
   | 'active-term' | 'college-setup' | 'structure' | 'timing' | 'subjects' | 'teachers' | 'assignment'
   | 'fixed-slots' | 'holidays' | 'profile' | 'drafts' | 'conflicts'
   | 'publish' | 'timetables' | 'hours' | 'my-timetable' | 'my-subjects' | 'notifications'
-  | 'substitutions' | 'absent-leave' | 'offers' | 'preferences' | 'my-preferences' | 'reports' | 'audit-log'
+  | 'substitutions' | 'absent-leave' | 'offers' | 'preferences' | 'my-preferences' | 'reports' | 'audit-log' | 'ai-assistant'
 
 export interface NavItem {
   label: string
@@ -68,7 +68,7 @@ const ADMIN: NavItem[] = [
   { label: 'Reports', path: '/admin/reports', icon: ChartColumn, phase: null, live: true, screen: 'reports', about: 'Workload against the UGC / AICTE norm, busiest and free teachers, free-teacher finder, hours progress, cancelled sessions, substitutions and school comparison.' },
   { label: 'Audit Log', path: '/admin/audit-log', icon: ScrollText, phase: null, live: true, screen: 'audit-log', about: 'A record of every important change - who, what and when. Filter by person, action and date.' },
   { label: 'Notifications', path: '/admin/notifications', icon: Bell, phase: null, live: true, screen: 'notifications', about: 'Everything sent to you.' },
-  { label: 'AI Assistant', path: '/admin/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
+  { label: 'AI Assistant', path: '/admin/ai-assistant', icon: Bot, phase: null, live: true, screen: 'ai-assistant', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
 ]
 
 const HOD_MY_SCHEDULE: NavItem[] = [
@@ -99,7 +99,7 @@ const HOD: NavItem[] = [
   { label: 'Teacher Preferences', path: '/hod/preferences', icon: ClipboardList, phase: null, live: true, screen: 'preferences', about: "Open a window for your teachers to say when they can and cannot teach, and see who has filled." },
   { label: 'Reports', path: '/hod/reports', icon: ChartColumn, phase: null, live: true, screen: 'reports', about: "Workload against the UGC / AICTE norm, busiest and free teachers, free-teacher finder, hours progress, cancelled sessions and substitutions of your school." },
   { label: 'Notifications', path: '/hod/notifications', icon: Bell, phase: null, live: true, screen: 'notifications', about: 'Everything sent to you.' },
-  { label: 'AI Assistant', path: '/hod/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
+  { label: 'AI Assistant', path: '/hod/ai-assistant', icon: Bot, phase: null, live: true, screen: 'ai-assistant', about: 'Ask about teachers, free periods and timetables - in English or Hinglish.' },
   {
     label: 'My Schedule',
     path: '/hod/my-schedule',
@@ -118,7 +118,7 @@ const TEACHER: NavItem[] = [
   { label: 'Absent & Leave', path: '/teacher/absent-leave', icon: CalendarOff, phase: null, live: true, screen: 'absent-leave', about: 'Mark yourself absent and send leave requests.' },
   { label: 'Offers', path: '/teacher/offers', icon: Inbox, phase: null, live: true, screen: 'offers', about: 'Substitution offers waiting for your answer, and lectures you are covering.' },
   { label: 'My Subjects', path: '/teacher/subjects', icon: BookOpen, phase: null, live: true, screen: 'my-subjects', about: 'Hours you have taught versus hours required, per subject.' },
-  { label: 'AI Assistant', path: '/teacher/ai-assistant', icon: Bot, phase: 'Phase 7', about: 'Quick answers about your day and about free teachers.' },
+  { label: 'AI Assistant', path: '/teacher/ai-assistant', icon: Bot, phase: null, live: true, screen: 'ai-assistant', about: 'Quick answers about your day and about free teachers.' },
   { label: 'Notifications', path: '/teacher/notifications', icon: Bell, phase: null, live: true, screen: 'notifications', about: 'Everything that changed for you.' },
 ]
 
