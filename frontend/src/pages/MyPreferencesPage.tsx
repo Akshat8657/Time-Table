@@ -89,7 +89,6 @@ export default function MyPreferencesPage() {
       <PageHeader
         title="My Preferences"
         subtitle="Tell the timetable when you would like to teach and when you cannot. Your HOD opens a window for this; outside it you can look, but not change."
-        badge="Phase 6"
       />
       {error ? (
         <Alert tone="danger">

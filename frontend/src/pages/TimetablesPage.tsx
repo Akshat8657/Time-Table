@@ -100,7 +100,6 @@ export default function TimetablesPage() {
       <PageHeader
         title="Timetables"
         subtitle="What teachers see right now: the published timetable, class by class, teacher by teacher, or the whole school with filters. Download any view as a print-friendly PDF or Excel file."
-        badge="Phase 4"
       />
       <SchoolBar />
 

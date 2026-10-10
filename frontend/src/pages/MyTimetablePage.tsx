@@ -22,7 +22,6 @@ export default function MyTimetablePage() {
       <PageHeader
         title="My Timetable"
         subtitle="Your weekly timetable as published by your HOD, with combined sessions, parallel electives, co-taught lectures and extra lectures. Holidays and events are marked on their day."
-        badge="Phase 4"
       />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <WeekBar monday={monday} onChange={setMonday} />

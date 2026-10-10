@@ -28,7 +28,6 @@ export default function NotificationsPage() {
       <PageHeader
         title="Notifications"
         subtitle="Everything that changed for you: your timetable being published, lectures moved, extra lectures. You get each one only once."
-        badge="Phase 4"
       />
       <div className="space-y-6">
         <PushSettings />

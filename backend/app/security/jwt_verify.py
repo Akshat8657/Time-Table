@@ -64,6 +64,11 @@ class TokenVerifier:
         if alg in _ASYMMETRIC:
             return await self._verify_asymmetric(token, alg, header.get("kid"), allow_expired)
         if alg == "HS256":
+            # A project that publishes asymmetric signing keys never issues HS256 tokens: such a token can only be forged
+            # (the classic "algorithm switch" trick), so it is refused without asking anyone.
+            await self._refresh_keys()
+            if self._keys:
+                raise _invalid()
             return await self._verify_via_auth_server(token, allow_expired)
         raise _invalid()  # includes alg=none and anything unexpected
 
@@ -136,10 +141,12 @@ class TokenVerifier:
                 await self._auth.get_user(token)
             except AuthError as exc:
                 if exc.status in (401, 403):
-                    if "expired" in exc.message.lower() and not allow_expired:
-                        raise ApiError(401, "TOKEN_EXPIRED", "Please refresh your sign-in.") from None
-                    if not allow_expired:
+                    # only a token the auth server called EXPIRED is genuine-but-old; anything else (a bad signature, a made-up
+                    # token) is refused even where an expired token would do (logout) - it is never read unchecked
+                    if "expired" not in exc.message.lower():
                         raise _invalid() from None
+                    if not allow_expired:
+                        raise ApiError(401, "TOKEN_EXPIRED", "Please refresh your sign-in.") from None
                 else:
                     raise ApiError(503, "AUTH_UNAVAILABLE", "The sign-in service is not reachable right now.") from exc
             payload = jwt.decode(token, options={"verify_signature": False, "verify_exp": False})

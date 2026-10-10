@@ -47,10 +47,19 @@ class Settings(BaseSettings):
     login_window_minutes: float = 15.0
     login_ip_max_attempts: int = 30
     enable_api_docs: bool = False
+    # true ONLY when the app runs behind your own reverse proxy (it then reads the client address from X-Forwarded-For)
+    trust_proxy_headers: bool = False
+    # "lax" (default) when the website and the API share one site; "none" when they live on different sites (needs HTTPS)
+    cookie_samesite: str = "lax"
+    # the biggest request body accepted (MB). Photos are max 5 MB and Excel files 2 MB, everything else is small JSON.
+    max_request_mb: float = 8.0
     # how long (seconds) a checked login session is remembered in memory. 0 = check the database on every request.
     # Logging out / deactivating / password reset always clear it at once; the delay only matters for edits made
     # directly in the database.
     session_cache_seconds: float = 5.0
+    # how long (seconds) the published timetable data may be served from memory. Any change made through the app clears it
+    # at once, so this only bounds changes made OUTSIDE the app (scripts, the database console). 0 = always read the database.
+    read_cache_seconds: float = 30.0
     # The Supabase session pooler accepts only 15 connections IN TOTAL (this app + scripts + tests together).
     db_pool_min: int = 3
     db_pool_max: int = 6
@@ -113,6 +122,14 @@ class Settings(BaseSettings):
             raise ValueError("must be greater than 0")
         return v
 
+    @field_validator("cookie_samesite", mode="before")
+    @classmethod
+    def _samesite(cls, v: str) -> str:
+        v = (v or "lax").strip().lower()
+        if v not in ("lax", "strict", "none"):
+            raise ValueError("must be lax, strict or none")
+        return v
+
     @field_validator("login_max_failed_attempts", "login_ip_max_attempts")
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -136,6 +153,32 @@ class Settings(BaseSettings):
     @property
     def is_dev(self) -> bool:
         return self.app_env.lower() != "production"
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() == "production"
+
+    @property
+    def secure_cookies(self) -> bool:
+        """Production always uses Secure cookies (HTTPS only), whatever COOKIE_SECURE says."""
+        return self.cookie_secure or self.is_production or self.cookie_samesite == "none"
+
+    @property
+    def max_request_bytes(self) -> int:
+        return int(max(1.0, self.max_request_mb) * 1024 * 1024)
+
+    def production_problems(self) -> list[str]:
+        """Settings that are fine on a laptop but unsafe on the internet (checked at start-up when APP_ENV=production)."""
+        out = []
+        if any(o.startswith("http://") and "localhost" not in o and "127.0.0.1" not in o for o in self.origins):
+            out.append("FRONTEND_ORIGINS has an http:// address - use https:// in production")
+        if any(o in ("http://localhost:5173", "http://127.0.0.1:5173") for o in self.origins):
+            out.append("FRONTEND_ORIGINS still lists the localhost development address")
+        if self.enable_api_docs:
+            out.append("ENABLE_API_DOCS is true - switch it off in production")
+        if not self.supabase_url.startswith("https://"):
+            out.append("SUPABASE_URL must start with https://")
+        return out
 
     @property
     def origins(self) -> list[str]:

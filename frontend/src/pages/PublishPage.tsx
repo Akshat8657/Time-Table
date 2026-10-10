@@ -153,7 +153,6 @@ export default function PublishPage() {
       <PageHeader
         title="Publish Timetable"
         subtitle="Publishing copies the PRIMARY draft of each class into the live timetable that teachers see. Teachers never see drafts. Publish again after any change - only the teachers whose own lectures changed are notified, once."
-        badge="Phase 4"
       />
       <SchoolBar>
         <Button

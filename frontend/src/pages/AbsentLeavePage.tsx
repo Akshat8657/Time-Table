@@ -11,6 +11,7 @@ import { api, ApiError } from '../lib/api'
 import { formatRange, formatShort, todayIso } from '../lib/helpers'
 import type { LeaveRequest, MarkAbsentResult, MyAbsence } from '../lib/types'
 import { useApi } from '../lib/useApi'
+import { LoadError } from '../components/LoadError'
 
 function statusTone(s: LeaveRequest['status']) {
   return s === 'approved' ? 'success' : s === 'rejected' ? 'danger' : s === 'cancelled' ? 'neutral' : 'warning'
@@ -78,7 +79,6 @@ export default function AbsentLeavePage() {
       <PageHeader
         title="Absent & Leave"
         subtitle="Mark yourself absent for a day (your HOD is told at once and your lectures are listed for a substitute), or request leave for a date or a range."
-        badge="Phase 5"
       />
       <div className="space-y-6">
         <div className="grid gap-6 lg:grid-cols-2">
@@ -117,6 +117,7 @@ export default function AbsentLeavePage() {
         </div>
 
         <Panel title="My absences" icon={Clock}>
+          <LoadError error={absences.error} onRetry={absences.reload} className="mb-3" />
           {absences.loading && !absences.data ? (
             <Skeleton className="h-16" />
           ) : absences.data && absences.data.absences.length > 0 ? (
@@ -131,12 +132,13 @@ export default function AbsentLeavePage() {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : absences.error ? null : (
             <p className="text-sm text-muted">You have no upcoming absences.</p>
           )}
         </Panel>
 
         <Panel title="My leave requests" icon={CalendarRange}>
+          <LoadError error={leave.error} onRetry={leave.reload} className="mb-3" />
           {leave.loading && !leave.data ? (
             <Skeleton className="h-16" />
           ) : leave.data && leave.data.leave.length > 0 ? (
@@ -152,7 +154,7 @@ export default function AbsentLeavePage() {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : leave.error ? null : (
             <EmptyState icon={Check} title="No leave requests">Request leave above and your HOD will approve or reject it.</EmptyState>
           )}
         </Panel>

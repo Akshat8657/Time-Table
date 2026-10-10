@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Any
 
@@ -126,10 +128,14 @@ async def stream(request: Request, user: CurrentUser = Depends(require_roles(*AL
 
 
 # ---------------------------------------------------------------------------------------------------- Web Push
+B64URL = r"^[A-Za-z0-9_-]+={0,2}$"     # what a browser's push keys look like (base64url)
+MAX_DEVICES = 5                       # one person, at most this many browsers getting alerts (the newest ones)
+
+
 class Keys(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    p256dh: str = Field(min_length=10, max_length=200)
-    auth: str = Field(min_length=10, max_length=100)
+    p256dh: str = Field(min_length=10, max_length=200, pattern=B64URL)
+    auth: str = Field(min_length=10, max_length=100, pattern=B64URL)
 
 
 class SubscribeIn(BaseModel):
@@ -169,6 +175,12 @@ async def subscribe(body: SubscribeIn, request: Request, user: CurrentUser = Dep
         """,
         me, body.endpoint, body.keys.p256dh, body.keys.auth, agent,
     )
+    # keep only the newest few browsers of this person: nobody can make one notification fan out to thousands of addresses
+    await db.execute(
+        "delete from public.push_subscriptions where user_id = $1 and id not in "
+        "(select id from public.push_subscriptions where user_id = $1 order by created_at desc, id limit $2)",
+        me, MAX_DEVICES,
+    )
     n = await db.fetchval("select count(*) from public.push_subscriptions where user_id = $1", me)
     return {"subscribed": True, "devices": int(n)}
 
@@ -181,8 +193,23 @@ async def unsubscribe(body: UnsubscribeIn, user: CurrentUser = Depends(require_r
     return {"subscribed": bool(n), "devices": int(n)}
 
 
+_test_clicks: dict[str, deque[float]] = {}
+
+
+def _limit_tests(user_id: str, per_minute: int = 3) -> None:
+    """The "send a test" button: a few a minute is plenty (it must not become a way to spam push services)."""
+    now = time.monotonic()
+    q = _test_clicks.setdefault(user_id, deque())
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= per_minute:
+        raise ApiError(429, "TOO_MANY_TESTS", "Please wait a minute before sending another test.", headers={"Retry-After": "60"})
+    q.append(now)
+
+
 @push_router.post("/test")
 async def push_test(user: CurrentUser = Depends(require_roles(*ALL))) -> dict:
+    _limit_tests(user.id)
     me = uuid.UUID(user.id)
     sent = await notify.send([notify.Notice(
         me, "test", "Test notification", "If you can read this, your alerts are working.", "/my/notifications",

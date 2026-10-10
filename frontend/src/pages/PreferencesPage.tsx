@@ -217,7 +217,6 @@ export default function PreferencesPage() {
       <PageHeader
         title="Teacher Preferences"
         subtitle="Open a window so teachers can tell the timetable when they can and cannot teach. Their 'not available' slots and daily maximum are firm rules for both the automatic and the manual timetable; stars and first / last lecture are honoured as far as possible."
-        badge="Phase 6"
       />
       <SchoolBar />
       {error ? (

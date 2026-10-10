@@ -10,13 +10,14 @@ Pure data + indexing here; the async loader at the bottom is the only part that 
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Iterable
 
-from .. import db
+from .. import db, readcache
 
 
 # ---------------------------------------------------------------------------------------------------- data
@@ -133,23 +134,27 @@ def _ids(value: Any) -> frozenset[uuid.UUID]:
 
 
 async def load_changes(school_id: uuid.UUID, term_id: uuid.UUID, window: tuple[date, date]) -> DayChanges:
-    """Every absence, substitution and one-day adjustment of this school that touches the date window."""
+    """Every absence, substitution and one-day adjustment of this school that touches the date window (read cache: see readcache)."""
+    return await readcache.cached(("changes", school_id, term_id, window), lambda: _load_changes(school_id, term_id, window))
+
+
+async def _load_changes(school_id: uuid.UUID, term_id: uuid.UUID, window: tuple[date, date]) -> DayChanges:
     lo, hi = window
-    absences, subs, adjusts = await db.fetch(
+    absences, subs, adjusts = await asyncio.gather(db.fetch(       # three independent reads: in parallel, not one after another
         "select id, teacher_id, absence_date, reason, source from public.teacher_absences "
         "where school_id = $1 and term_id = $2 and absence_date between $3 and $4",
         school_id, term_id, lo, hi,
-    ), await db.fetch(
+    ), db.fetch(
         "select id, absence_id, lecture_date, start_period, length, semester_ids, subject_ids, parallel_key, label, "
         "absent_teacher_id, status, mode, substitute_id, offer_deadline, note from public.substitutions "
         "where school_id = $1 and term_id = $2 and lecture_date between $3 and $4",
         school_id, term_id, lo, hi,
-    ), await db.fetch(
+    ), db.fetch(
         "select id, lecture_date, kind, semester_ids, orig_start, length, new_start, subject_ids, parallel_key, label, "
         "teacher_id, co_teacher_id, swap_group, reason from public.day_adjustments "
         "where school_id = $1 and term_id = $2 and lecture_date between $3 and $4",
         school_id, term_id, lo, hi,
-    )
+    ))
     return DayChanges(
         absences=[Absence(a["id"], a["teacher_id"], a["absence_date"], a["reason"], a["source"]) for a in absences],
         adjustments=[

@@ -113,7 +113,6 @@ export default function HoursPage() {
       <PageHeader
         title="Semester Hours"
         subtitle="Live from the published timetable, the semester dates and the holidays and events: the hours each subject can still deliver against the hours it needs. When a subject falls short, one click finds clash-free extra slots for you to approve."
-        badge="Phase 4"
       />
       <SchoolBar />
 

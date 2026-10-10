@@ -10,10 +10,15 @@ Teacher accounts get a random temporary password; each is written to  seed_accou
 """
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("READ_CACHE_SECONDS", "0")   # these scripts also write straight to the database: always read fresh
+
 import argparse
 import asyncio
 import json
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -482,186 +487,210 @@ class Seeder:
 class Report:
     def __init__(self) -> None:
         self.bad = 0
+        self.notes = 0
 
     def check(self, ok: bool, msg: str, extra: str = "") -> None:
         if not ok:
             self.bad += 1
         log(("  PASS  " if ok else "  FAIL  ") + msg + (f"   {extra}" if extra else ""))
 
+    def info(self, msg: str, extra: str = "") -> None:
+        """A difference from the seed FILE that the college made on purpose later (never a failure)."""
+        self.notes += 1
+        log("  INFO  " + msg + (f"   {extra}" if extra else ""))
+
 
 async def verify(api: Api) -> int:
+    """READ-ONLY check of the real School of IT data.
+
+    The college keeps editing its data after the seed (subjects, weekly lectures, day-wise schedules, the working week ...), so
+    this does NOT compare every value with the seed file any more. It FAILS only on structural problems - something missing,
+    broken or clashing - and lists the differences from the seed file as INFO lines.
+    """
     rep = Report()
     tree = await api.get("/api/structure/tree")
-    school = next(s for s in tree["schools"] if s["name"] == "School of IT")
+    school = next((s for s in tree["schools"] if s["name"] == "School of IT"), None)
+    rep.check(school is not None, "School of IT exists")
+    if school is None:
+        return rep.bad
     sid = school["id"]
-    sem = {}
+    sem: dict[str, str] = {}
     for key, (course, number) in CLASSES.items():
-        c = next(c for c in school["courses"] if c["name"] == course)
-        sem[key] = next(s["id"] for s in c["semesters"] if s["number"] == number)
+        c = next((c for c in school["courses"] if c["name"] == course), None)
+        found = next((s["id"] for s in (c or {}).get("semesters", []) if s["number"] == number), None)
+        if found:
+            sem[key] = found
+    rep.check(len(sem) == len(CLASSES), f"all {len(CLASSES)} seeded classes still exist", f"found {len(sem)}")
+    label_of = {sem[k]: f"{CLASSES[k][0]} - Sem {CLASSES[k][1]}" for k in sem}
 
     log("\n== active term + dates ==")
-    term = (await api.get("/api/terms"))
+    term = await api.get("/api/terms")
     active = term.get("active") or next((t for t in term.get("terms", []) if t.get("is_active")), None)
-    rep.check(bool(active) and active["kind"] == "odd" and active["year"] == 2026, "active term is Odd 2026", str(active and active.get("name")))
-    dates = (await api.get(f"/api/terms/{active['id']}/dates?school_id={sid}"))
+    rep.check(bool(active), "an active term is selected", str(active and active.get("name")))
+    if not active:
+        return rep.bad
+    if not (active["kind"] == "odd" and active["year"] == 2026):
+        rep.info("the active term is not the seeded Odd 2026", active["name"])
+    dates = await api.get(f"/api/terms/{active['id']}/dates?school_id={sid}")
     rows = dates.get("classes") or dates.get("items") or dates.get("dates") or []
-    dated = [r for r in rows if r.get("start_date") == SEM_START and r.get("end_date") == SEM_END]
-    rep.check(len(rows) == 8 and len(dated) == 8, f"semester dates {SEM_START} to {SEM_END} on all 8 running classes", f"({len(dated)} of {len(rows)})")
+    dated = [r for r in rows if r.get("start_date") and r.get("end_date") and r["start_date"] < r["end_date"]]
+    rep.check(len(rows) > 0 and len(dated) == len(rows), f"every running class has semester dates (start before end): {len(dated)} of {len(rows)}")
+    if [r for r in rows if (r.get("start_date"), r.get("end_date")) != (SEM_START, SEM_END)]:
+        rep.info("some semester dates differ from the seed file", f"seed: {SEM_START} to {SEM_END}")
 
     log("\n== timing ==")
     timing = await api.get(f"/api/timing?school_id={sid}")
     c = timing["college"]
-    rep.check((c["college_start"], c["college_end"], c["lecture_minutes"], c["break_minutes"], c["days_per_week"]) == ("10:00", "16:50", 60, 5, 6), "college 10:00-16:50, 60/5 min, Monday-Saturday")
+    rep.check(c["college_start"] < c["college_end"] and c["lecture_minutes"] > 0 and 5 <= c["days_per_week"] <= 6,
+              f"college hours {c['college_start']}-{c['college_end']}, {c['lecture_minutes']} min lectures, {c['days_per_week']}-day week")
+    if (c["college_start"], c["college_end"], c["lecture_minutes"], c["break_minutes"], c["days_per_week"]) != ("10:00", "16:50", 60, 5, 6):
+        rep.info("college timing differs from the seed file (10:00-16:50, 60/5 min, Monday-Saturday)",
+                 f"now {c['college_start']}-{c['college_end']}, {c['lecture_minutes']}/{c['break_minutes']} min, {c['days_per_week']} days")
     classes_t = {x["semester_id"]: x for x in timing["classes"]}
-    for key, rules in DAYS.items():
-        days = {d["day"]: d for d in classes_t[sem[key]]["days"]}
-        ok = True
-        for d in range(1, 7):
-            want = rules.get(d)
-            got = days[d]
-            if want == "OFF":
-                ok &= got["is_off"] is True
-            elif want:
-                ok &= (not got["is_off"]) and got["end_time"] == want
-            else:
-                ok &= (not got["is_off"]) and got["end_time"] in (None, "16:50")
-        rep.check(ok, f"{CLASSES[key][0]} Sem {CLASSES[key][1]}: day-wise schedule", " ".join(f"{d}:{'OFF' if days[d]['is_off'] else (days[d]['end_time'] or 'full')}" for d in range(1, 7)))
+    for key, sem_id in sem.items():
+        days = {d["day"]: d for d in classes_t.get(sem_id, {}).get("days", [])}
+        sane = bool(days) and all(d["is_off"] or d["end_time"] is None or c["college_start"] < d["end_time"] <= c["college_end"] for d in days.values())
+        rep.check(sane, f"{label_of[sem_id]}: day-wise schedule is complete and inside college hours",
+                  " ".join(f"{d}:{'OFF' if days[d]['is_off'] else (days[d]['end_time'] or 'full')}" for d in sorted(days)))
+        want = DAYS.get(key, {})
+        differs = any((want.get(d) == "OFF") != days[d]["is_off"] or (want.get(d) not in (None, "OFF") and days[d]["end_time"] != want.get(d)) for d in days)
+        if differs:
+            rep.info(f"{label_of[sem_id]}: day-wise schedule changed since the seed")
     rep.check(not timing.get("warnings"), "no timing warnings", str(timing.get("warnings")))
 
     log("\n== teachers ==")
     users = (await api.get(f"/api/users?school_id={sid}&status=all"))["users"]
     by_email = {u["email"]: u for u in users}
-    rep.check(len(users) == len(PEOPLE), f"{len(PEOPLE)} accounts (1 HOD + 14 regular + 2 visiting)", f"found {len(users)}")
-    rep.check(not any(u["full_name"] == "External Faculty" or u["email"] == LEGACY_EXTERNAL_EMAIL for u in users), "the single 'External Faculty' account is gone (split into AI&ML and Cyber)")
-    rep.check(not any("dixit" in u["full_name"].lower() or "dixit" in u["email"] for u in users), "NO account for Prof. Anurag Dixit")
-    rep.check(all(u["email"].endswith("@school-it.test") for u in users), "all emails are dummy @school-it.test")
-    hod = [u for u in users if u["role"] == "hod"]
-    rep.check(len(hod) == 1 and hod[0]["full_name"] == "Dr. Papri Das", "Dr. Papri Das is the HOD of School of IT")
-    for p in PEOPLE:
-        u = by_email.get(f"{p.email}@{EMAIL_DOMAIN}")
-        ok = u is not None and u["full_name"] == p.name and u["specialization"] == p.specialization and u["is_visiting"] == bool(p.visiting_days) and sorted(u["visiting_days"]) == p.visiting_days and u["must_change_password"] is True
-        rep.check(ok, f"{p.name}: specialization{' + visiting days Mon-Wed' if p.visiting_days else ''}, must change password at first login")
+    emails = [u["email"].lower() for u in users]
+    rep.check(len(emails) == len(set(emails)), "every account has its own email address")
+    hods = [u for u in users if u["role"] == "hod" and u["is_active"]]
+    rep.check(len(hods) == 1, "the school has exactly one active HOD", ", ".join(u["full_name"] for u in hods))
+    missing = [p.name for p in PEOPLE if f"{p.email}@{EMAIL_DOMAIN}" not in by_email]
+    rep.check(not missing, f"all {len(PEOPLE)} seeded people still have an account", str(missing))
+    if len(users) != len(PEOPLE):
+        rep.info(f"{len(users)} accounts now (seed file: {len(PEOPLE)})")
+    visiting = [u for u in users if u["is_visiting"]]
+    rep.check(all(u["visiting_days"] and u.get("max_weekly_hours") for u in visiting), f"every visiting teacher has visiting days + a weekly-hours limit ({len(visiting)})")
+    changed = [p.name for p in PEOPLE if (u := by_email.get(f"{p.email}@{EMAIL_DOMAIN}")) and (u["full_name"] != p.name or u["specialization"] != p.specialization)]
+    if changed:
+        rep.info(f"{len(changed)} teacher(s) edited their name / specialization since the seed")
 
-    log("\n== subjects, credits, labs, groups ==")
+    log("\n== subjects, labs, groups ==")
     subs = (await api.get(f"/api/subjects?school_id={sid}"))["subjects"]
-    for key, (course, number) in CLASSES.items():
-        mine = [s for s in subs if s["semester_id"] == sem[key]]
-        counted, seen_groups = 0, set()
-        for s in mine:
-            if s["elective_group_id"]:
-                if s["elective_group_id"] in seen_groups:
-                    continue
-                seen_groups.add(s["elective_group_id"])
-            counted += s["credits"]
-        want = SEED_CREDITS[key] - NOT_SEEDED_CREDITS.get(key, 0)
-        labs = sum(1 for s in mine if s["is_lab"])
-        extra = f"+ {NOT_SEEDED_CREDITS[key]} credits of OJT/Internship not seeded = {counted + NOT_SEEDED_CREDITS[key]} (seed file: {SEED_CREDITS[key]})" if key in NOT_SEEDED_CREDITS else f"(seed file: {SEED_CREDITS[key]})"
-        rep.check(len(mine) == len(SUBJECTS[key]) and counted == want, f"{course} Sem {number}: {len(mine)} subjects ({labs} labs), {counted} credits", extra)
-    labs_bad = [s for s in subs if s["is_lab"] and (s["credits"] != 1 or s["semester_hours"] != 30)]
-    rep.check(not labs_bad, "every lab is 1 credit (one double block a week)")
+    codes = [s["code"] for s in subs]
+    rep.check(len(codes) == len(set(codes)), f"every subject code is unique ({len(subs)} subjects)")
+    for key, sem_id in sem.items():
+        mine = [s for s in subs if s["semester_id"] == sem_id]
+        rep.check(len(mine) > 0, f"{label_of[sem_id]}: {len(mine)} subjects ({sum(1 for s in mine if s['is_lab'])} labs)")
+        if len(mine) != len(SUBJECTS[key]):
+            rep.info(f"{label_of[sem_id]}: {len(mine)} subjects now (seed file: {len(SUBJECTS[key])})")
+    rep.check(all(s["credits"] >= 1 and s["semester_hours"] > 0 for s in subs), "every subject has credits and semester hours")
     groups = (await api.get(f"/api/subjects/groups?school_id={sid}"))["groups"]
-    rep.check(len(groups) == 8 and all(len(g["members"]) == 2 and not g["warnings"] for g in groups),
-              "8 B.Sc. track groups (4 classes x majors + labs, AI&ML || Cyber), 2 parallel options each, no credit warnings", str(len(groups)))
-    # V4: every AI-track Major + Lab -> External Faculty (AI&ML), every Cyber-track Major + Lab -> External Faculty (Cyber)
-    track_rows = [(k, r) for k, rows in SUBJECTS.items() for r in rows if r.get("track")]
-    by_code = {s["code"]: s for s in subs}
-    for want_track, who in (("AI", "External Faculty (AI&ML)"), ("CYBER", "External Faculty (Cyber)")):
-        mine = [(k, r) for k, r in track_rows if r["track"] == want_track]
-        ok = all(by_code[f"{k}-{r['code']}"]["teacher_name"] == who and by_code[f"{k}-{r['code']}"]["co_teacher_name"] is None for k, r in mine)
-        rep.check(ok and len(mine) == 8, f"all {len(mine)} {want_track}-track Majors + Labs (4 classes) -> {who}", str(sorted({by_code[f'{k}-{r['code']}']['teacher_name'] for k, r in mine})))
-    for key in ("EXT_AI", "EXT_CYBER"):
-        p = next(p for p in PEOPLE if p.key == key)
-        u = by_email[f"{p.email}@{EMAIL_DOMAIN}"]
-        want_ids = {s["id"] for s in subs if s["teacher_id"] == u["id"]}
-        got = set((await api.get(f"/api/users/{u['id']}"))["subject_ids"])
-        rep.check(got == want_ids and len(got) == 8 and u["specialization"] == p.specialization, f"{p.name}: subjects they can teach = the 8 assigned ones; specialization '{u['specialization']}'")
+    rep.check(all(len(g["members"]) >= 2 for g in groups), f"every elective group has 2 or more parallel options ({len(groups)} groups)")
+    warned = [g["name"] for g in groups if g["warnings"]]
+    if warned:
+        rep.info("elective groups with a credit warning (the HOD decides)", ", ".join(warned))
     real_ids = {u["id"] for u in users if u["is_active"]}
     rep.check(all(s["teacher_id"] in real_ids for s in subs if s["teacher_id"]) and all(s["co_teacher_id"] in real_ids for s in subs if s["co_teacher_id"]),
               "no subject points at a missing / deactivated teacher")
-    pesol = [s for s in subs if s["special_kind"]]
-    rep.check(len(pesol) == 12 and all(s["credits"] in (1, 2) for s in pesol), "PE / SOL subjects: 6 PE + 6 SOL", f"found {len(pesol)}")
-    rep.check(not any(s["special_kind"] for s in subs if s["semester_id"] in (sem["BSC5"], sem["BSC7"])), "B.Sc. Sem 5 and Sem 7 have no PE / SOL subjects")
-
-    log("\n== assignments ==")
-    unassigned = [s for s in subs if not s["teacher_id"]]
-    rep.check(len(unassigned) == 1 and unassigned[0]["code"] == "BSC3-AEC3", "only AEC 3 (B.Sc. Sem 3) has no teacher", str([s["code"] for s in unassigned]))
-    minor7 = next(s for s in subs if s["code"] == "BSC7-MIN7")
-    rep.check(minor7["teacher_name"] == "Dr. Papri Das" and minor7["co_teacher_name"] == "Maitri Hingu", "Minor 7: Dr. Papri Das + co-teacher Maitri Hingu")
-    expected_pairs = {f"{k}-{r['code']}": (r.get("teacher"), r.get("co_teacher")) for k, rows in SUBJECTS.items() for r in rows}
-    name_of = {p.key: p.name for p in PEOPLE}
-    wrong = [s["code"] for s in subs if (name_of.get(expected_pairs[s["code"]][0]), name_of.get(expected_pairs[s["code"]][1])) != (s["teacher_name"], s["co_teacher_name"])]
-    rep.check(not wrong, f"every other assignment matches the seed file ({len(subs) - 1} of {len(subs)} checked)", str(wrong))
+    unassigned = [s["code"] for s in subs if not s["teacher_id"] and not s["special_kind"]]
+    if unassigned:
+        rep.info(f"{len(unassigned)} subject(s) without a teacher", ", ".join(unassigned))
+    no_pe = {sem.get(k) for k in NO_PE_SOL}
+    rep.check(not any(s["special_kind"] for s in subs if s["semester_id"] in no_pe), "classes marked 'no PE / SOL' have no PE / SOL subjects")
 
     log("\n== fixed slots ==")
     fs = await api.get(f"/api/fixed-slots?school_id={sid}")
     slots = fs["slots"]
-    rep.check(len(slots) == len(SLOTS), f"{len(SLOTS)} locked sessions", f"found {len(slots)}")
-    label_of = {sem[k]: f"{CLASSES[k][0]} - Sem {CLASSES[k][1]}" for k in sem}
-    for what, kind, day, start, classes in SLOTS:
-        s = next((x for x in slots if x["kind"] == kind and x["day"] == day and x["start_period"] == start), None)
-        ok = s is not None and s["length"] == 2 and sorted(s["semester_ids"]) == sorted(sem[k] for k in classes) and s["combined"] == (len(classes) > 1) and not s["problems"]
-        who = s["teacher_name"] if s else None
-        rep.check(ok, f"{what}: {day_name(day)} P{start}-P{start + 1}, {'COMBINED ' if len(classes) > 1 else ''}{', '.join(CLASSES[k][0] + ' S' + str(CLASSES[k][1]) for k in classes)}", f"teacher: {who}")
-    want_teacher = {"SOL I (B.Sc.)": "Dr. Dhaval Thaker", "PE I (B.Sc.)": "Mr. Sushant Singh", "PE Monday (combined)": "Mr. Sushant Singh",
-                    "SOL I (M.Sc.)": "Ms. Juhikadevi Bhanjdeo", "SOL III (B.Sc. + M.Sc.)": "Ms. Subarna Ghosh"}
-    for what, kind, day, start, classes in SLOTS:
-        s = next(x for x in slots if x["kind"] == kind and x["day"] == day and x["start_period"] == start)
-        rep.check(s["teacher_name"] == want_teacher[what], f"teacher of '{what}'", str(s["teacher_name"]))
-    cls = {c["semester_id"]: c for c in fs["classes"]}
-    for k in ("BSC1", "BSC3", "MIT1", "MIT3", "MAI1", "MAI3"):
-        rep.check(cls[sem[k]]["has_pe"] and cls[sem[k]]["has_sol"], f"{label_of[sem[k]]}: PE fixed, SOL fixed")
-    for k in NO_PE_SOL:
-        rep.check(cls[sem[k]]["no_pe_sol"] and not cls[sem[k]]["has_pe"] and not cls[sem[k]]["has_sol"], f"{label_of[sem[k]]}: marked 'no PE / SOL' and has none")
+    rep.check(len(slots) > 0, f"{len(slots)} locked sessions")
+    if len(slots) != len(SLOTS):
+        rep.info(f"{len(slots)} locked sessions now (seed file: {len(SLOTS)})")
+    rep.check(all(s["length"] == 2 for s in slots if s["kind"] in ("PE", "SOL")), "every PE / SOL session is a 2-period double block")
     rep.check(not any(s["problems"] for s in slots), "no locked slot reports a problem (no clash, all inside the day-wise schedules)")
-    # the double booking of a teacher in two different sessions at the same time must not exist
-    busy: dict[tuple[str, int, int], list[str]] = {}
-    for s in slots:
-        for p in range(s["start_period"], s["start_period"] + s["length"]):
-            busy.setdefault((s["teacher_id"], s["day"], p), []).append(s["id"])
+    busy: dict[tuple[str, int, int], set[str]] = {}
+    for sl in slots:
+        for t in (sl["teacher_id"], sl.get("co_teacher_id")):
+            for n in range(sl["start_period"], sl["start_period"] + sl["length"]):
+                if t:
+                    busy.setdefault((t, sl["day"], n), set()).add(sl["id"])
     rep.check(all(len(v) == 1 for v in busy.values()), "no teacher is in two different locked sessions at once")
-    # a class is never in two places either
     occupied: dict[tuple[str, int, int], int] = {}
-    for s in slots:
-        for sm_id in s["semester_ids"]:
-            for p in range(s["start_period"], s["start_period"] + s["length"]):
-                occupied[(sm_id, s["day"], p)] = occupied.get((sm_id, s["day"], p), 0) + 1
-    rep.check(all(v == 1 for v in occupied.values()), "no class is in two places at once")
+    for sl in slots:
+        for sm_id in sl["semester_ids"]:
+            for n in range(sl["start_period"], sl["start_period"] + sl["length"]):
+                occupied[(sm_id, sl["day"], n)] = occupied.get((sm_id, sl["day"], n), 0) + 1
+    rep.check(all(v == 1 for v in occupied.values()), "no class is in two locked sessions at once")
+    cls = {x["semester_id"]: x for x in fs["classes"]}
+    for k, sem_id in sem.items():
+        x = cls.get(sem_id)
+        if x is None:
+            continue
+        if x["no_pe_sol"]:
+            rep.check(not x["has_pe"] and not x["has_sol"], f"{label_of[sem_id]}: marked 'no PE / SOL' and has none")
+        else:
+            rep.check(x["has_pe"] and x["has_sol"], f"{label_of[sem_id]}: PE fixed, SOL fixed")
+
+    log("\n== the published timetable has no clash ==")
+    from app.services import publishing as pub
+
+    pub_rows = await db.fetch(
+        "select id, semester_id, kind, subject_id, fixed_kind, label, day, start_period, length, group_key, teacher_id, co_teacher_id, combined_with "
+        "from public.published_entries where school_id = $1 and term_id = $2", uuid.UUID(sid), uuid.UUID(active["id"]))
+    prow = [pub.row_from_record(r) for r in pub_rows]
+    t_busy: dict[tuple, set] = {}
+    c_busy: dict[tuple, set] = {}
+    for r in prow:
+        for n in range(r.start, r.start + r.length):
+            for t in r.teachers:
+                t_busy.setdefault((t, r.day, n), set()).add(r.key)
+            c_busy.setdefault((r.semester_id, r.day, n), set()).add(r.key)
+    t_clash = [k for k, v in t_busy.items() if len(v) > 1]
+    c_clash = [k for k, v in c_busy.items() if len(v) > 1]
+    if prow:
+        published_classes = len({r.semester_id for r in prow})
+        rep.check(not t_clash, f"published timetable ({published_classes} classes, {len(prow)} rows): no teacher is in two places at once", str(t_clash[:3]))
+        rep.check(not c_clash, "published timetable: no class has two lectures at once (parallel electives count once)", str(c_clash[:3]))
+    else:
+        rep.info("no timetable is published yet")
 
     log("\n== visiting days are a hard rule ==")
     for key in ("ANJANA", "FALGUNI"):
-        tid = next(u["id"] for u in users if u["email"] == f"{next(p for p in PEOPLE if p.key == key).email}@{EMAIL_DOMAIN}")
-        for day in (4, 5, 6):
-            r = await api.call("POST", "/api/fixed-slots/check", ok=(200, 422), json={"semester_ids": [sem["MIT1"]], "day": day, "start_period": 1, "kind": "OTHER", "length": 1, "label": "Probe", "teacher_id": tid})
+        person = next(p for p in PEOPLE if p.key == key)
+        u = by_email.get(f"{person.email}@{EMAIL_DOMAIN}")
+        if u is None or not u["is_visiting"] or "MIT1" not in sem:
+            rep.info(f"{person.name}: not a visiting teacher any more (skipped)")
+            continue
+        not_days = [d for d in range(1, c["days_per_week"] + 1) if d not in u["visiting_days"]]
+        for day in not_days[:3]:
+            r = await api.call("POST", "/api/fixed-slots/check", ok=(200, 422), json={"semester_ids": [sem["MIT1"]], "day": day, "start_period": 1, "kind": "OTHER", "length": 1, "label": "Probe", "teacher_id": u["id"]})
             bad = r.get("problems") or ([r["message"]] if r.get("message") else [])
-            rep.check(r.get("ok") is False and any("visiting faculty" in p for p in bad), f"{name_of[key]} refused on {day_name(day)}")
-        r = await api.call("POST", "/api/fixed-slots/check", ok=(200, 422), json={"semester_ids": [sem["MIT1"]], "day": 4, "start_period": 1, "kind": "OTHER", "length": 1, "label": "Probe", "teacher_id": tid})
-    # the probes never save anything
+            rep.check(r.get("ok") is False and any("visiting faculty" in m for m in bad), f"{u['full_name']} refused on {day_name(day)} (not a visiting day)")
     after = (await api.get(f"/api/fixed-slots?school_id={sid}"))["slots"]
-    rep.check(len(after) == len(SLOTS), "the probes saved nothing")
+    rep.check(len(after) == len(slots), "the probes saved nothing")
 
-    log("\n== dashboards / checklists ==")
+    log("\n== dashboards ==")
     admin_user = Who.user
     admin_ov = await api.get("/api/hod/overview")
-    rep.check(admin_ov["active_term"]["name"] == "Odd 2026", "admin dashboard: active term Odd 2026")
+    rep.check(admin_ov["active_term"]["name"] == active["name"], f"admin dashboard: active term {active['name']}")
     Who.user = await load_user(role="hod")
-    hod_ov = await api.get("/api/hod/overview")
-    s = hod_ov["setup"]
-    rep.check(hod_ov["school"]["name"] == "School of IT" and hod_ov["counts"]["teachers"] == len(PEOPLE) - 1, "HOD dashboard: School of IT", f"teachers counted: {hod_ov['counts']['teachers']}")
-    rep.check(s["classes"] == 8 and s["no_pe_sol_classes"] == 2 and s["classes_with_pe"] == 6 and s["classes_with_sol"] == 6, "HOD checklist: 8 classes, PE 6/6, SOL 6/6 (2 classes without PE / SOL)", str({k: s[k] for k in ("classes", "classes_with_pe", "classes_with_sol", "no_pe_sol_classes")}))
-    rep.check(s.get("dates_set") == 8, "HOD checklist: semester dates set for 8 classes", str(s.get("dates_set")))
-    log("  HOD setup numbers: " + json.dumps(s, default=str))
-    hod_slots = await api.get("/api/fixed-slots")
-    rep.check(len(hod_slots["slots"]) == len(SLOTS), "the HOD sees all locked sessions of his school")
-    # a teacher's home screen
-    Who.user = await load_user(email=f"sushant.singh@{EMAIL_DOMAIN}")
     try:
-        t_ov = await api.get("/api/teacher/overview")
-        rep.check(t_ov.get("active_term", {}).get("name") == "Odd 2026", "teacher home: active term shown")
+        hod_ov = await api.get("/api/hod/overview")
+        st = hod_ov["setup"]
+        rep.check(hod_ov["school"]["name"] == "School of IT" and st["classes"] == len(rows), "HOD dashboard: School of IT, every running class counted",
+                  str({k: st[k] for k in ("classes", "classes_with_pe", "classes_with_sol", "no_pe_sol_classes")}))
+        rep.check(len((await api.get("/api/fixed-slots"))["slots"]) == len(slots), "the HOD sees all locked sessions of his school")
+        teacher = next((u for u in users if u["role"] == "teacher" and u["is_active"]), None)
+        if teacher:
+            Who.user = await load_user(email=teacher["email"])
+            t_ov = await api.get("/api/teacher/overview")
+            rep.check(t_ov.get("active_term", {}).get("name") == active["name"], "teacher home: active term shown")
     except SeedError as exc:
-        rep.check(False, "teacher home loads", str(exc))
-    Who.user = admin_user
+        rep.check(False, "dashboards load", str(exc))
+    finally:
+        Who.user = admin_user
 
-    log(f"\nVERIFY: {'ALL PASS' if rep.bad == 0 else str(rep.bad) + ' CHECK(S) FAILED'}")
+    tail = f"   ({rep.notes} INFO line(s) = changes made after the seed, not errors)" if rep.notes else ""
+    log(f"\nVERIFY: {'ALL PASS' if rep.bad == 0 else str(rep.bad) + ' CHECK(S) FAILED'}{tail}")
     return rep.bad
 
 

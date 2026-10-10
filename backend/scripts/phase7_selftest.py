@@ -15,6 +15,10 @@ browser test, never on the real data.
 """
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("READ_CACHE_SECONDS", "0")   # these scripts also write straight to the database: always read fresh
+
 import asyncio
 import sys
 import time

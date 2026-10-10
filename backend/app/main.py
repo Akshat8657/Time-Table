@@ -11,6 +11,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import unquote
 
 import asyncpg
 from fastapi import FastAPI, Request
@@ -21,7 +22,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import db, pgerrors
+from . import db, pgerrors, readcache
 from .config import explain_config_error, get_settings
 from .errors import ApiError
 from .migrations import pending_versions
@@ -37,12 +38,25 @@ from .security.rate_limit import AttemptLimiter
 from .supabase_auth import AuthError, SupabaseAuth
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+# The timetable generator runs in a worker thread and is pure number-crunching. A shorter switch interval lets the web
+# requests get the interpreter back sooner while a generation run is busy (no effect when nothing else is running).
+sys.setswitchinterval(0.001)
 log = logging.getLogger("tt")
 
 try:
     settings = get_settings()
 except (ValidationError, ValueError) as exc:
     print(explain_config_error(exc))
+    sys.exit(1)
+
+if settings.is_production and settings.production_problems():
+    # fail safe: a production server with laptop settings must not start at all
+    print("=" * 64)
+    print(" APP_ENV=production, lekin .env me ye settings abhi theek nahi hain:")
+    for problem in settings.production_problems():
+        print("   - " + problem)
+    print(" PRODUCTION_CHECKLIST.md dekho, .env theek karo, phir dobara start karo.")
+    print("=" * 64)
     sys.exit(1)
 
 
@@ -105,6 +119,7 @@ async def _substitution_sweep() -> None:
             await asyncio.sleep(60)
             closed = await subflow.sweep(datetime.now(timezone.utc))
             if closed:
+                readcache.bump()
                 log.info("Closed %d substitution offer round(s) nobody accepted", closed)
         except asyncio.CancelledError:
             raise
@@ -123,11 +138,34 @@ async def _preference_sweep() -> None:
             await asyncio.sleep(60)
             done = await prefflow.sweep(datetime.now(timezone.utc))
             if done["closed"] or done["reminded"]:
+                readcache.bump()
                 log.info("Preference windows: closed %d, reminders sent to %d teacher(s)", done["closed"], done["reminded"])
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("Preference window sweep failed")
+
+
+async def _warm_cache() -> None:
+    """Right after start-up, read the published timetables of every school once, so the first people to open their screens
+    do not all wait for the database at the same moment."""
+    from datetime import timedelta
+
+    from .services import terms as term_svc
+    from .services import views as vw
+    from .services.viewdata import load_view_data
+
+    try:
+        term = await term_svc.active_term()
+        if term is None:
+            return
+        today = vw.today_ist()
+        monday = vw.monday_of(today)
+        for row in await db.fetch("select id from public.schools where is_active"):
+            for window in (None, (today, today), (monday, monday + timedelta(days=6))):
+                await load_view_data(row["id"], term, window)
+    except Exception:  # noqa: BLE001 - only a head start, never a reason to fail
+        log.exception("Cache warm-up skipped")
 
 
 @asynccontextmanager
@@ -149,6 +187,7 @@ async def lifespan(app: FastAPI):
     keepalive = asyncio.create_task(_keepalive())
     sweep = asyncio.create_task(_substitution_sweep())
     pref_sweep = asyncio.create_task(_preference_sweep())
+    warm = asyncio.create_task(_warm_cache())
     log.info("TimeTablePro API is ready")
     try:
         yield
@@ -157,6 +196,7 @@ async def lifespan(app: FastAPI):
         keepalive.cancel()
         sweep.cancel()
         pref_sweep.cancel()
+        warm.cancel()
         await auth.aclose()
         await gemini.close()
         await db.close_pool()
@@ -228,6 +268,8 @@ async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         return _error_response(404, "NOT_FOUND", "That page doesn't exist.")
     if exc.status_code == 405:
         return _error_response(405, "METHOD_NOT_ALLOWED", "That action isn't allowed here.")
+    if exc.status_code == 413:
+        return _error_response(413, "TOO_LARGE", "That is too much data for one request. Please send a smaller file.")
     return _error_response(exc.status_code, "HTTP_ERROR", "The request could not be completed.")
 
 
@@ -246,12 +288,19 @@ async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 # ---------------------------------------------------------------------- security middleware
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# POSTs that change nothing the timetable screens read (signing in, the bell, push devices, AI questions, probes)
+_NO_DATA_CHANGE = ("/api/auth/", "/api/notifications/", "/api/push/", "/api/assistant/chat", "/api/assistant/choose",
+                   "/api/assistant/cancel", "/api/hours/suggest", "/api/fixed-slots/check")
 
 
 @app.middleware("http")
 async def security_guard(request: Request, call_next):
     # Browsers always send Origin on POST/PUT/PATCH/DELETE. Anything not coming from OUR site is refused
     # (blocks cross-site request forgery, even from other localhost ports).
+    # a NUL character is never part of real input (it only ever comes from someone probing): refuse it politely instead of
+    # letting the database choke on it
+    if "\x00" in unquote(request.url.query):
+        return _error_response(422, "VALIDATION_ERROR", "Please check what you typed - it contains a character that is not allowed.")
     if request.method in _UNSAFE_METHODS:
         origin = request.headers.get("origin")
         if origin is not None and origin.rstrip("/") not in settings.origins:
@@ -259,6 +308,8 @@ async def security_guard(request: Request, call_next):
             return _error_response(403, "BAD_ORIGIN", "This request was blocked for your safety.")
     started = time.monotonic()
     response = await call_next(request)
+    if request.method in _UNSAFE_METHODS and response.status_code < 400 and not request.url.path.startswith(_NO_DATA_CHANGE):
+        readcache.bump()   # something changed: cached timetable data is stale from now on
     took = time.monotonic() - started
     if took > 4.0:  # a slow screen is a bug: leave a trace (path only - never the query string or any data)
         log.warning("SLOW request: %s %s took %.1f s", request.method, request.url.path, took)
@@ -267,9 +318,55 @@ async def security_guard(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    if settings.is_production:  # HTTPS only from now on (browsers remember it for a year)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if docs is None:  # the API only returns JSON; the docs page (if enabled) needs scripts
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     return response
+
+
+class BodyLimit:
+    """Refuses request bodies bigger than MAX_REQUEST_MB before they are read into memory (a 1 GB upload cannot tie up the
+    server). A declared Content-Length is checked at once; a streamed (chunked) body is read up to the limit and refused
+    as soon as it goes over (browsers always declare the length, so this only ever meets scripts)."""
+
+    def __init__(self, app, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method") not in _UNSAFE_METHODS:
+            return await self.app(scope, receive, send)
+        too_big = _error_response(413, "TOO_LARGE", "That is too much data for one request. Please send a smaller file.")
+        declared = dict(scope.get("headers") or []).get(b"content-length")
+        if declared is not None:
+            try:
+                if int(declared) > self.max_bytes:
+                    return await too_big(scope, receive, send)
+            except ValueError:
+                return await _error_response(400, "BAD_REQUEST", "The request could not be read.")(scope, receive, send)
+            return await self.app(scope, receive, send)
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body = message.get("body", b"")
+            total += len(body)
+            if total > self.max_bytes:
+                return await too_big(scope, receive, send)
+            chunks.append(body)
+            if not message.get("more_body", False):
+                break
+        pending = [{"type": "http.request", "body": b"".join(chunks), "more_body": False}]
+
+        async def replay():
+            return pending.pop() if pending else await receive()
+
+        await self.app(scope, replay, send)
 
 
 # CORS is locked to localhost origins only. (Added after the guard => runs before it.)
@@ -284,6 +381,8 @@ app.add_middleware(
 )
 # Only these Host names are served (protects against DNS-rebinding tricks).
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.hosts)
+# The outermost layer: an over-sized body is refused before anything else reads it.
+app.add_middleware(BodyLimit, max_bytes=settings.max_request_bytes)
 
 app.include_router(health.router)
 app.include_router(auth_routes.router)

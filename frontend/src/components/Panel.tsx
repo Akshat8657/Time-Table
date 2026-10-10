@@ -29,7 +29,7 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={`rounded-2xl border border-line bg-surface shadow-card ${className}`}>
+    <section className={`min-w-0 rounded-2xl border border-line bg-surface shadow-card ${className}`}>
       <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
         <h2 className="flex items-center gap-2.5 text-[15px] font-semibold text-ink">
           {Icon && <Icon className="size-[18px] text-brand-text" aria-hidden="true" />}

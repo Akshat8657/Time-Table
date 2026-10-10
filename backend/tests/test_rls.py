@@ -110,13 +110,14 @@ def test_teacher_cannot_move_themselves_to_another_school(live):
     assert str(profile_value(me.user_id, "school_id")) == me.school_id
 
 
-def test_teacher_can_edit_the_harmless_fields_of_their_own_profile(live):
+def test_nobody_edits_even_harmless_profile_fields_through_the_data_api(live):
+    """Phase 8: every change goes through our API (validation + audit log) - the data API is read-only for the browser roles."""
     me = live["teacher"].account
+    before = (profile_value(me.user_id, "phone"), profile_value(me.user_id, "specialization"))
     r = rest("PATCH", f"/profiles?id=eq.{me.user_id}", live["teacher"].token,
              json={"phone": "9876543210", "specialization": "AI, ML"}, headers={"Prefer": "return=representation"})
-    assert r.status_code == 200 and len(r.json()) == 1, r.text
-    assert profile_value(me.user_id, "phone") == "9876543210"
-    assert profile_value(me.user_id, "specialization") == "AI, ML"
+    assert r.status_code in DENIED, r.text
+    assert (profile_value(me.user_id, "phone"), profile_value(me.user_id, "specialization")) == before
 
 
 def test_teacher_cannot_edit_a_colleague(live):
@@ -124,21 +125,18 @@ def test_teacher_cannot_edit_a_colleague(live):
     before = profile_value(other.user_id, "phone")
     r = rest("PATCH", f"/profiles?id=eq.{other.user_id}", live["teacher"].token, json={"phone": "1111111111"},
              headers={"Prefer": "return=representation"})
-    assert r.status_code == 200 and r.json() == []  # row is invisible -> nothing changes
+    assert r.status_code in DENIED or (r.status_code == 200 and r.json() == [])
     assert profile_value(other.user_id, "phone") == before
 
 
-def test_hod_can_edit_own_school_but_not_other_schools(live):
+def test_hod_cannot_edit_profiles_through_the_data_api_either(live):
     mine, theirs = live["teacher"].account, live["teacher_b"].account
-    r = rest("PATCH", f"/profiles?id=eq.{mine.user_id}", live["hod"].token, json={"phone": "2222222222"},
-             headers={"Prefer": "return=representation"})
-    assert r.status_code == 200 and len(r.json()) == 1
-    assert profile_value(mine.user_id, "phone") == "2222222222"
-    before = profile_value(theirs.user_id, "phone")
-    r = rest("PATCH", f"/profiles?id=eq.{theirs.user_id}", live["hod"].token, json={"phone": "3333333333"},
-             headers={"Prefer": "return=representation"})
-    assert r.status_code == 200 and r.json() == []
-    assert profile_value(theirs.user_id, "phone") == before
+    for target in (mine, theirs):
+        before = profile_value(target.user_id, "phone")
+        r = rest("PATCH", f"/profiles?id=eq.{target.user_id}", live["hod"].token, json={"phone": "2222222222"},
+                 headers={"Prefer": "return=representation"})
+        assert r.status_code in DENIED or (r.status_code == 200 and r.json() == [])
+        assert profile_value(target.user_id, "phone") == before
 
 
 def test_hod_cannot_promote_a_teacher_to_admin(live):
@@ -158,22 +156,16 @@ def test_nobody_can_create_or_delete_accounts_through_the_public_api(live):
     assert db_val("select count(*) from public.profiles where id = $1", uuid.UUID(live["teacher"].account.user_id)) == 1
 
 
-def test_only_the_admin_can_add_schools(live):
-    for who in ("teacher", "hod"):
-        r = rest("POST", "/schools", live[who].token, json={"name": f"ZZ Test School evil-{who}"})
+def test_nobody_adds_or_renames_schools_through_the_data_api(live):
+    """Schools are made on the College Setup screen (our API: validation + audit) - never straight in the database."""
+    for who in ("teacher", "hod", "admin"):
+        r = rest("POST", "/schools", live[who].token, json={"name": f"ZZ Test School evil-{who}"}, headers={"Prefer": "return=representation"})
         assert r.status_code in DENIED, (who, r.status_code)
-    r = rest("POST", "/schools", live["admin"].token, json={"name": f"ZZ Test School made-by-admin {RUN_ID}"},
-             headers={"Prefer": "return=representation"})
-    assert r.status_code == 201, r.text
+        r = rest("PATCH", "/schools?name=eq.School%20of%20IT", live[who].token, json={"name": "Hacked"}, headers={"Prefer": "return=representation"})
+        assert r.status_code in DENIED or r.json() == [], (who, r.status_code)
+        r = rest("DELETE", "/schools?name=eq.School%20of%20IT", live[who].token)
+        assert r.status_code in DENIED
     assert db_val("select count(*) from public.schools where name like 'ZZ Test School evil%'") == 0
-    # a teacher cannot rename a school either
-    r = rest("PATCH", "/schools?name=eq.School%20of%20IT", live["teacher"].token, json={"name": "Hacked"},
-             headers={"Prefer": "return=representation"})
-    assert r.status_code in DENIED or r.json() == []
-    assert db_val("select count(*) from public.schools where name = 'School of IT'") == 1
-    # nobody (not even admin) can delete a school through the public API
-    r = rest("DELETE", "/schools?name=eq.School%20of%20IT", live["admin"].token)
-    assert r.status_code in DENIED
     assert db_val("select count(*) from public.schools where name = 'School of IT'") == 1
 
 

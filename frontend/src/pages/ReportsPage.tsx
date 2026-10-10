@@ -345,7 +345,6 @@ export default function ReportsPage() {
       <PageHeader
         title="Reports"
         subtitle={isAdmin ? 'Numbers from the published timetables, for every school or one school. Every report downloads as an Excel file.' : `Numbers from your school's published timetable. Every report downloads as an Excel file.`}
-        badge="Phase 6"
       />
       <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-card">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-text"><Building2 className="size-[18px]" aria-hidden="true" /></span>

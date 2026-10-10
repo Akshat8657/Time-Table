@@ -101,7 +101,7 @@ async def list_leave(
         args.append(uuid.UUID(user.id))
         where.append(f"l.teacher_id = ${len(args)}")
     elif user.role == "hod":
-        args.append(uuid.UUID(user.school_id))  # type: ignore[arg-type]
+        args.append(await resolve_school(user, school_id))   # his own school; naming another one is the usual 403
         where.append(f"l.school_id = ${len(args)}")
     elif school_id:
         args.append(await resolve_school(user, school_id))

@@ -119,6 +119,10 @@ def _prepare_photo(raw: bytes) -> bytes:
         with Image.open(io.BytesIO(raw)) as img:
             if img.format not in ("JPEG", "PNG", "WEBP", "GIF"):
                 raise ValueError("format")
+            # Pillow only WARNS between 1x and 2x its pixel limit and would still unpack a tiny file into hundreds of MB:
+            # check the size from the header BEFORE anything is decoded
+            if img.width * img.height > Image.MAX_IMAGE_PIXELS:
+                raise ValueError("too many pixels")
             img.load()
             img = ImageOps.exif_transpose(img)
             if img.mode in ("RGBA", "LA", "P"):

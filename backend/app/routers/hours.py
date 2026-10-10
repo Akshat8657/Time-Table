@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import audit, db
+from .. import audit, db, readcache
 from ..errors import ApiError
 from ..scope import as_uuid, load_in_scope, resolve_school
 from ..security.deps import CurrentUser, require_roles
@@ -37,8 +37,11 @@ MAX_SLOTS = 30
 
 
 async def _assignments(school_id: uuid.UUID, term_id: uuid.UUID) -> dict[uuid.UUID, tuple[uuid.UUID | None, uuid.UUID | None]]:
-    rows = await db.fetch("select subject_id, teacher_id, co_teacher_id from public.assignments where school_id = $1 and term_id = $2", school_id, term_id)
-    return {r["subject_id"]: (r["teacher_id"], r["co_teacher_id"]) for r in rows}
+    async def load() -> dict[uuid.UUID, tuple[uuid.UUID | None, uuid.UUID | None]]:
+        rows = await db.fetch("select subject_id, teacher_id, co_teacher_id from public.assignments where school_id = $1 and term_id = $2", school_id, term_id)
+        return {r["subject_id"]: (r["teacher_id"], r["co_teacher_id"]) for r in rows}
+
+    return await readcache.cached(("hours.assignments", school_id, term_id), load)
 
 
 async def _data(school_id: uuid.UUID, *, with_prefs: bool = False) -> ViewData | None:
@@ -55,6 +58,15 @@ async def _cancelled(school_id: uuid.UUID, term_id: uuid.UUID) -> set:
     return {(sem, r["lecture_date"], r["orig_start"]) for r in rows for sem in (r["semester_ids"] or [])}
 
 
+async def _all_hours(school_id: uuid.UUID, data: ViewData, today: date) -> dict[uuid.UUID, list[hr.SubjectHours]]:
+    """The hours of EVERY subject of the school (read-only, shared): the dashboards and every teacher's "my hours" use the
+    same numbers, so they are worked out once until anything changes (see readcache.py)."""
+    async def load() -> dict[uuid.UUID, list[hr.SubjectHours]]:
+        return hr.compute_hours(data, today, cancelled=await _cancelled(school_id, data.term["id"]))
+
+    return await readcache.cached(("hours.all", school_id, data.term["id"], today), load)
+
+
 def _dates_out(data: ViewData, sem_id: uuid.UUID) -> dict[str, str] | None:
     d = data.term_dates.get(sem_id)
     return None if d is None else {"start": d[0].isoformat(), "end": d[1].isoformat()}
@@ -65,7 +77,7 @@ async def school_summary(school_id: uuid.UUID) -> dict[str, Any] | None:
     data = await _data(school_id)
     if data is None:
         return None
-    return hr.summarize(hr.compute_hours(data, vw.today_ist(), cancelled=await _cancelled(school_id, data.term['id'])))
+    return hr.summarize(await _all_hours(school_id, data, vw.today_ist()))
 
 
 # ---------------------------------------------------------------------------------------------------- tracking
@@ -113,7 +125,7 @@ async def my_hours(user: CurrentUser = Depends(require_roles(*TEACHING))) -> dic
     assigned = await _assignments(sid, data.term["id"])
     mine_assigned = {s for s, (t, co) in assigned.items() if me in (t, co)}
     today = vw.today_ist()
-    per_class = hr.compute_hours(data, today, cancelled=await _cancelled(sid, data.term['id']))
+    per_class = await _all_hours(sid, data, today)
     rows = [h for hs in per_class.values() for h in hs if any(t == me for t, _n in h.teachers) or h.subject.id in mine_assigned]
     return {
         "term": term_svc.term_out(data.term), "today": today.isoformat(),

@@ -13,7 +13,6 @@ export default function OffersPage() {
       <PageHeader
         title="Substitution Offers"
         subtitle="Lectures you have been offered to cover (first to accept gets it), and the lectures you are already covering as a substitute."
-        badge="Phase 5"
       />
       <div className="space-y-6">
         <Panel title={`Offers waiting${offers.length ? ` (${offers.length})` : ''}`} icon={Inbox}>

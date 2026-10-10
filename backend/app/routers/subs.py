@@ -6,6 +6,8 @@ first to accept wins (made safe by locking the substitution row).  Reuses the Ph
 """
 from __future__ import annotations
 
+import asyncio
+
 import io
 import uuid
 from datetime import datetime, time, timedelta
@@ -291,8 +293,9 @@ async def my_offers(user: CurrentUser = Depends(require_roles(*TEACHING, touch=F
         return {"offers": [], "covering": []}
     sid = uuid.UUID(user.school_id)
     now = datetime.now(vw.IST)
-    data = await load_view_data(sid, term)
-    offers = await db.fetch(
+    # this is asked by every open browser all the time: two small reads in parallel, and the (big) timetable data only when
+    # there is actually something to show
+    offers, covering = await asyncio.gather(db.fetch(
         """
         select o.id as offer_id, o.reasons, o.expires_at, s.*
         from public.substitution_offers o join public.substitutions s on s.id = o.substitution_id
@@ -300,7 +303,13 @@ async def my_offers(user: CurrentUser = Depends(require_roles(*TEACHING, touch=F
         order by o.expires_at
         """,
         me, now,
-    )
+    ), db.fetch(
+        "select * from public.substitutions where substitute_id = $1 and status = 'filled' and lecture_date >= $2 order by lecture_date, start_period",
+        me, vw.today_ist(),
+    ))
+    if not offers and not covering:
+        return {"offers": [], "covering": []}
+    data = await load_view_data(sid, term)
     import json as _json
 
     out_offers = []
@@ -311,10 +320,6 @@ async def my_offers(user: CurrentUser = Depends(require_roles(*TEACHING, touch=F
             "reasons": _json.loads(reasons) if isinstance(reasons, str) else reasons,
             "expires_at": o["expires_at"].isoformat(),
         })
-    covering = await db.fetch(
-        "select * from public.substitutions where substitute_id = $1 and status = 'filled' and lecture_date >= $2 order by lecture_date, start_period",
-        me, vw.today_ist(),
-    )
     return {
         "offers": out_offers,
         "covering": [{**sub_out(data, c), "absent_teacher_name": data.person_name(c["absent_teacher_id"])} for c in covering],

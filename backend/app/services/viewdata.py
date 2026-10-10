@@ -12,7 +12,7 @@ from typing import Any
 
 import asyncpg
 
-from .. import db
+from .. import db, readcache
 from . import calindex
 from . import prefs as prefs_svc
 from . import publishing as pub
@@ -135,7 +135,15 @@ async def load_view_data(
     school_id: uuid.UUID, term: asyncpg.Record, window: tuple[date, date] | None = None, *, with_prefs: bool = False,
 ) -> ViewData:
     """`window` = the dates the calendar and the extra lectures are needed for (None = the whole term).
-    `with_prefs` also loads the teachers' preferences (extra-lecture planning, substitution ranking, reports); plain views skip them."""
+    `with_prefs` also loads the teachers' preferences (extra-lecture planning, substitution ranking, reports); plain views skip them.
+    Served from the read cache while nothing has changed (callers only READ a ViewData - never change it)."""
+    key = ("viewdata", school_id, term["id"], window, with_prefs)
+    return await readcache.cached(key, lambda: _load_view_data(school_id, term, window, with_prefs=with_prefs))
+
+
+async def _load_view_data(
+    school_id: uuid.UUID, term: asyncpg.Record, window: tuple[date, date] | None = None, *, with_prefs: bool = False,
+) -> ViewData:
     (grid, college), sems, rule_rows, pubs, rows, subs, people, tdates, school, prefs = await asyncio.gather(
         timing_svc.school_grid(school_id),
         db.fetch(

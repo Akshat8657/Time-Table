@@ -352,7 +352,6 @@ function Welcome({ role }: { role: Role }) {
               ? `Here is ${user?.school_name ?? 'your school'} at a glance.`
               : 'Here is your day at a glance.'
         }
-        badge="Phase 4"
       />
     </>
   )
@@ -465,7 +464,7 @@ export function AdminDashboard() {
             </ul>
           ) : (
             <EmptyState icon={Building2} title="No schools yet">
-              Schools and their HODs are created in College Setup (Phase 1).
+              Schools and their HODs are created in College Setup.
             </EmptyState>
           )}
         </Panel>

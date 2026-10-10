@@ -20,7 +20,6 @@ export default function MySubjectsPage() {
       <PageHeader
         title="My Subjects"
         subtitle="Hours you have taught against the hours each subject needs, counted from the published timetable, the semester dates and the holidays and events."
-        badge="Phase 4"
       />
       {error ? (
         <Alert tone="danger">

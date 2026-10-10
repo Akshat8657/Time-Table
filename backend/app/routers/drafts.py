@@ -28,7 +28,7 @@ import asyncpg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import audit, db
+from .. import audit, db, readcache
 from ..errors import ApiError
 from ..scope import as_uuid, load_in_scope, resolve_school
 from ..security.deps import CurrentUser, require_roles
@@ -61,9 +61,18 @@ class Loaded:
         return replace(self, ctx=replace(self.ctx, drafts=drafts), rows=rows)
 
 
-async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None) -> Loaded:
-    """Everything one request needs, in one parallel round of queries."""
+async def load(school_id: uuid.UUID, term: asyncpg.Record | None = None, *, cached: bool = False) -> Loaded:
+    """Everything one request needs, in one parallel round of queries.
+
+    cached=True only for READ screens (lists, conflicts, publish status): the answer is shared until anything changes
+    (see readcache.py) and must not be modified. Change requests always read fresh."""
     term = term or await term_svc.require_active_term()
+    if cached:
+        return await readcache.cached(("drafts.load", school_id, term["id"]), lambda: _load(school_id, term))
+    return await _load(school_id, term)
+
+
+async def _load(school_id: uuid.UUID, term: asyncpg.Record) -> Loaded:
     (grid, college), sems, rule_rows, subs, assigns, people, fixed, drafts, entries, prefs = await asyncio.gather(
         timing_svc.school_grid(school_id),
         db.fetch(
@@ -268,7 +277,7 @@ async def list_drafts(school_id: str | None = None, user: CurrentUser = Depends(
     term = await term_svc.active_term()
     if term is None:
         return {"active_term": None, "classes": []}
-    L = await load(sid, term)
+    L = await load(sid, term, cached=True)
     ctx = L.ctx
     classes = []
     for sm in L.sems:
@@ -493,7 +502,7 @@ async def copy_term(body: CopyTermIn, user: CurrentUser = Depends(require_roles(
 @router.get("/{draft_id}")
 async def get_draft(draft_id: str, user: CurrentUser = Depends(require_roles(*ROLES))) -> dict:
     row, term = await _draft(user, draft_id)
-    L = await load(row["school_id"], term)
+    L = await load(row["school_id"], term, cached=True)
     return draft_detail(L, row["id"])
 
 
@@ -769,7 +778,7 @@ async def conflict_report(
     term = await term_svc.active_term()
     if term is None:
         return {"active_term": None, "items": [], "counts": {"clashes": 0, "missing": 0, "warnings": 0}, "classes": []}
-    L = await load(sid, term)
+    L = await load(sid, term, cached=True)
     ctx = L.ctx
     only = as_uuid(semester_id, "class") if semester_id else None
     if only is not None and only not in ctx.labels:

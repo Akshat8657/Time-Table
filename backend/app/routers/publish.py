@@ -19,7 +19,7 @@ import asyncpg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from .. import audit, db
+from .. import audit, db, readcache
 from ..errors import ApiError
 from ..scope import as_uuid, resolve_school
 from ..security.deps import CurrentUser, require_roles
@@ -181,8 +181,8 @@ async def status(school_id: str | None = None, user: CurrentUser = Depends(requi
     term = await term_svc.active_term()
     if term is None:
         return {"active_term": None, "classes": [], "summary": {}}
-    L = await drafts_router.load(sid, term)
-    pubs, old = await load_published(sid, term["id"])
+    L = await drafts_router.load(sid, term, cached=True)
+    pubs, old = await readcache.cached(("publish.published", sid, term["id"]), lambda: load_published(sid, term["id"]))
     plans = make_plans(L, pubs, old)
     classes = [class_status(p, L.ctx.grid) for p in plans.values()]
     summary = {k: sum(1 for c in classes if c["state"] == k) for k in ("no_draft", "not_published", "in_sync", "changed", "draft_removed")}

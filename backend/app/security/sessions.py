@@ -10,6 +10,9 @@ The browser cookie holds ONLY the opaque Supabase refresh token - no email, no n
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
+
 import logging
 import time
 import uuid
@@ -32,7 +35,7 @@ _EXPIRED_REASONS = {"idle", "absolute", "expired"}
 
 SESSION_SQL = """
 select s.supabase_session_id, s.user_id, s.remember_me, s.created_at, s.last_activity_at,
-       s.absolute_expires_at, s.revoked_at, s.revoked_reason,
+       s.absolute_expires_at, s.revoked_at, s.revoked_reason, s.refresh_hash, s.prev_refresh_hash, s.rotated_at,
        p.email, p.full_name, p.role, p.school_id, sc.name as school_name, p.specialization, p.phone,
        p.photo_url, p.is_visiting, p.is_active, p.must_change_password
 from public.app_sessions s
@@ -63,20 +66,52 @@ async def create(
     remember_me: bool,
     ip: str | None,
     user_agent: str | None,
+    refresh_token: str | None = None,
 ) -> datetime:
     """Records a new login session. Returns its absolute expiry time."""
     absolute_expires_at = now_utc() + absolute_limit(settings, remember_me)
     await db.execute(
         """
-        insert into public.app_sessions (supabase_session_id, user_id, remember_me, absolute_expires_at, ip, user_agent)
-        values ($1, $2, $3, $4, $5, $6)
+        insert into public.app_sessions (supabase_session_id, user_id, remember_me, absolute_expires_at, ip, user_agent, refresh_hash, rotated_at)
+        values ($1, $2, $3, $4, $5, $6, $7, now())
         on conflict (supabase_session_id) do nothing
         """,
         uuid.UUID(supabase_session_id), uuid.UUID(user_id), remember_me, absolute_expires_at,
-        (ip or "")[:64] or None, (user_agent or "")[:300] or None,
+        (ip or "")[:64] or None, (user_agent or "")[:300] or None, token_hash(refresh_token) if refresh_token else None,
         retry=True,
     )
     return absolute_expires_at
+
+
+# ---------------------------------------------------------------------- refresh-token reuse detection
+REFRESH_GRACE = timedelta(seconds=10)   # two tabs refreshing at the very same moment both present the same (old) cookie
+
+
+def token_hash(token: str) -> str:
+    """Only a fingerprint of the refresh token is ever stored - never the token itself."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def refresh_verdict(row: Any, presented: str, now: datetime) -> str:
+    """'current' (the newest token), 'race' (the previous one, within a few seconds of the swap), 'unknown' (sessions made
+    before this check existed) or 'stolen' (an older token turned up again - someone else has a copy of the cookie)."""
+    current, previous, rotated_at = row.get("refresh_hash"), row.get("prev_refresh_hash"), row.get("rotated_at")
+    h = token_hash(presented)
+    if current is None:
+        return "unknown"
+    if h == current:
+        return "current"
+    if previous is not None and h == previous and rotated_at is not None and now - rotated_at <= REFRESH_GRACE:
+        return "race"
+    return "stolen"
+
+
+async def rotate(supabase_session_id: str, new_refresh_token: str) -> None:
+    await db.execute(
+        "update public.app_sessions set prev_refresh_hash = refresh_hash, refresh_hash = $2, rotated_at = now() "
+        "where supabase_session_id = $1 and refresh_hash is distinct from $2",
+        uuid.UUID(supabase_session_id), token_hash(new_refresh_token),
+    )
 
 
 async def load(supabase_session_id: str) -> asyncpg.Record | None:
@@ -88,6 +123,7 @@ async def load(supabase_session_id: str) -> asyncpg.Record | None:
 # every click, so a checked session is remembered for a few seconds. EVERY way of ending / changing a session in this
 # program (logout, deactivate, password reset / change, expiry clean-up) clears the cache at once - see invalidate_*.
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_inflight: dict[str, "asyncio.Future"] = {}
 _CACHE_MAX = 2000
 
 
@@ -98,7 +134,16 @@ async def load_cached(settings: Settings, supabase_session_id: str) -> dict[str,
     hit = _cache.get(supabase_session_id)
     if hit is not None and time.monotonic() - hit[0] < ttl:
         return hit[1]
-    row = await load(supabase_session_id)
+    # a screen fires several calls at once: they share ONE database check instead of each making its own
+    pending = _inflight.get(supabase_session_id)
+    if pending is not None:
+        return await asyncio.shield(pending)
+    task = asyncio.ensure_future(load(supabase_session_id))
+    _inflight[supabase_session_id] = task
+    try:
+        row = await asyncio.shield(task)
+    finally:
+        _inflight.pop(supabase_session_id, None)
     if row is None:
         _cache.pop(supabase_session_id, None)
         return None
@@ -265,12 +310,12 @@ def set_cookie(response: Response, settings: Settings, refresh_token: str, remem
         max_age=int(settings.remember_idle.total_seconds()) if remember_me else None,
         path=COOKIE_PATH,
         httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
+        secure=settings.secure_cookies,
+        samesite=settings.cookie_samesite,
     )
 
 
 def clear_cookie(response: Response, settings: Settings) -> None:
     response.delete_cookie(
-        SESSION_COOKIE, path=COOKIE_PATH, httponly=True, secure=settings.cookie_secure, samesite="lax"
+        SESSION_COOKIE, path=COOKIE_PATH, httponly=True, secure=settings.secure_cookies, samesite=settings.cookie_samesite
     )

@@ -22,6 +22,7 @@ import { useSchoolScope } from '../lib/scope'
 import { useTerm } from '../lib/term'
 import type { AbsenceRow, LeaveRequest, MonthlySummary, Substitution, ViewOptions } from '../lib/types'
 import { useApi } from '../lib/useApi'
+import { LoadError } from '../components/LoadError'
 
 type Tab = 'today' | 'leave' | 'adjust' | 'summary'
 
@@ -104,7 +105,6 @@ export default function SubstitutionsPage() {
       <PageHeader
         title="Substitutions"
         subtitle="Mark teachers absent, find and assign substitutes (manually or with auto popup-offers), approve leave, and move / cancel / swap a lecture for one day."
-        badge="Phase 5"
       />
       <SchoolBar />
       <div className="mb-5">
@@ -151,6 +151,7 @@ export default function SubstitutionsPage() {
           )}
 
           <Panel title={`Absent on ${formatShort(date)}`} icon={UserX}>
+            <LoadError error={absences.error} onRetry={absences.reload} className="mb-3" />
             {absences.loading && !absences.data ? (
               <Skeleton className="h-16" />
             ) : absences.data && absences.data.absences.length > 0 ? (
@@ -172,6 +173,7 @@ export default function SubstitutionsPage() {
           </Panel>
 
           <Panel title="Lectures to cover" icon={Repeat}>
+            <LoadError error={subs.error} onRetry={subs.reload} className="mb-3" />
             {subs.loading && !subs.data ? (
               <Skeleton className="h-24" />
             ) : subs.data && subs.data.substitutions.length > 0 ? (
@@ -212,7 +214,7 @@ export default function SubstitutionsPage() {
 
 function LeaveInbox({ scope }: { scope: ReturnType<typeof useSchoolScope> }) {
   const toast = useToast()
-  const { data, loading, reload } = useApi<{ leave: LeaveRequest[] }>(scope.schoolId ? scope.path('/leave?scope=school') : null)
+  const { data, error, loading, reload } = useApi<{ leave: LeaveRequest[] }>(scope.schoolId ? scope.path('/leave?scope=school') : null)
   const [note, setNote] = useState<Record<string, string>>({})
 
   async function decide(id: string, decision: 'approve' | 'reject') {
@@ -230,6 +232,7 @@ function LeaveInbox({ scope }: { scope: ReturnType<typeof useSchoolScope> }) {
 
   return (
     <div className="space-y-5">
+      <LoadError error={error} onRetry={reload} />
       <Panel title={`Pending leave${pending.length ? ` (${pending.length})` : ''}`} icon={Inbox}>
         {loading && !data ? (
           <Skeleton className="h-20" />
@@ -274,13 +277,14 @@ function LeaveInbox({ scope }: { scope: ReturnType<typeof useSchoolScope> }) {
 
 function SummaryTab({ scope, downloadSheet }: { scope: ReturnType<typeof useSchoolScope>; downloadSheet: () => void }) {
   const [month, setMonth] = useState(todayIso().slice(0, 7))
-  const { data, loading } = useApi<MonthlySummary>(scope.schoolId ? scope.path(`/subs/summary?month=${month}`) : null)
+  const { data, error, loading, reload } = useApi<MonthlySummary>(scope.schoolId ? scope.path(`/subs/summary?month=${month}`) : null)
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-3">
         <TextField label="Month" type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-44" />
         <Button variant="secondary" icon={<FileText className="size-4" />} onClick={downloadSheet}>Today's sheet (PDF)</Button>
       </div>
+      <LoadError error={error} onRetry={reload} />
       {loading && !data ? (
         <Skeleton className="h-64" />
       ) : data ? (

@@ -189,6 +189,7 @@ def server():
     env = os.environ.copy()
     env["LOGIN_MAX_FAILED_ATTEMPTS"] = str(LOCKOUT_AFTER)
     env["SESSION_CACHE_SECONDS"] = "0"  # these tests edit sessions straight in the database -> check it on every request
+    env["READ_CACHE_SECONDS"] = "0"     # ... and timetable data too (the read cache has its own tests in test_p8_speed.py)
     env["DB_POOL_MIN"], env["DB_POOL_MAX"] = "2", "3"  # the session pooler allows only 15 connections for ALL programs together
     # Phase 7: the API under test talks to a LOCAL pretend Gemini (tests/fake_gemini.py) - deterministic, and it never spends the real free quota
     fake = FakeGemini()
@@ -201,7 +202,7 @@ def server():
     log_path = BACKEND_DIR / "tests" / "_server.log"
     log = open(log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(TEST_PORT)],
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(TEST_PORT), "--no-server-header"],
         cwd=BACKEND_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
     )
     try:
@@ -330,6 +331,7 @@ async def _snapshot() -> dict[str, Any]:
             "college": dict(await conn.fetchrow("select * from public.college_settings")),
             "terms": [r["id"] for r in await conn.fetch("select id from public.academic_terms")],
             "active": await conn.fetchval("select id from public.academic_terms where is_active"),
+            "activated": await conn.fetchrow("select activated_at, activated_by from public.academic_terms where is_active"),
             "preloaded": [dict(r) for r in await conn.fetch("select * from public.calendar_entries where is_preloaded and school_id is null")],
         }
     finally:
@@ -357,7 +359,11 @@ async def _restore(snap: dict[str, Any]) -> None:
         await conn.execute("update public.academic_terms set is_active = false")
         await conn.execute("delete from public.academic_terms where not (id = any($1::uuid[]))", snap["terms"])
         if snap["active"]:
-            await conn.execute("update public.academic_terms set is_active = true where id = $1", snap["active"])
+            # also who / when it was activated: the real term row ends exactly as it was
+            await conn.execute(
+                "update public.academic_terms set is_active = true, activated_at = $2, activated_by = $3 where id = $1",
+                snap["active"], snap["activated"]["activated_at"], snap["activated"]["activated_by"],
+            )
         await conn.execute("delete from public.calendar_entries where is_preloaded and school_id is null")
         for e in snap["preloaded"]:
             cols = list(e)

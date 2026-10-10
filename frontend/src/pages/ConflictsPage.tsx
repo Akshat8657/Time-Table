@@ -80,7 +80,6 @@ export default function ConflictsPage() {
       <PageHeader
         title="Conflict Report"
         subtitle="Every clash, every lecture still missing and every warning in the timetable drafts of the active term. Click an item to jump to the exact cell in the grid."
-        badge="Phase 2"
       />
       <SchoolBar>
         <Button variant="secondary" size="sm" icon={<RefreshCw className="size-4" />} onClick={reload} loading={loading && !!data}>

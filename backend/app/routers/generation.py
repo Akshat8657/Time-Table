@@ -26,7 +26,7 @@ import asyncpg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import audit, db
+from .. import audit, db, readcache
 from ..errors import ApiError
 from ..scope import as_uuid, resolve_school
 from ..security.deps import CurrentUser, require_roles
@@ -222,6 +222,7 @@ async def _run_job(run_id, sid, term, name, problem, weights, time_limit, L, use
         )
     finally:
         JOBS.pop(str(run_id), None)
+        readcache.bump()  # the run saved drafts in the background (no change request): cached screens must re-read
 
 
 # ---------------------------------------------------------------------------------------------------- read runs
@@ -235,11 +236,13 @@ async def _run_row(user: CurrentUser, run_id: str) -> asyncpg.Record:
 async def _solutions_out(run_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[dict[str, Any]]]:
     if not run_ids:
         return {}
-    sols = await db.fetch("select * from public.generation_solutions where run_id = any($1::uuid[]) order by label", run_ids)
-    drafts = await db.fetch(
-        "select d.id, d.solution_id, d.semester_id, d.name, d.is_primary from public.timetable_drafts d where d.solution_id is not null "
-        "and d.solution_id in (select id from public.generation_solutions where run_id = any($1::uuid[]))",
-        run_ids,
+    sols, drafts = await asyncio.gather(
+        db.fetch("select * from public.generation_solutions where run_id = any($1::uuid[]) order by label", run_ids),
+        db.fetch(
+            "select d.id, d.solution_id, d.semester_id, d.name, d.is_primary from public.timetable_drafts d where d.solution_id is not null "
+            "and d.solution_id in (select id from public.generation_solutions where run_id = any($1::uuid[]))",
+            run_ids,
+        ),
     )
     by_solution: dict[uuid.UUID, list] = {}
     for d in drafts:

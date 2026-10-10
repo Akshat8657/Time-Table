@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from 'react'
+import { lazy, Suspense, type ComponentType } from 'react'
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider'
 import { PublicOnly, RequireAuth, RequireRole, RoleRedirect } from './auth/guards'
@@ -6,11 +6,15 @@ import { CookieBanner } from './consent/CookieBanner'
 import { AppShell } from './layouts/AppShell'
 import { HOME, NAV, ROLE_PREFIX, leaves, type ScreenKey } from './lib/nav'
 import type { Role } from './lib/types'
-import ChangePasswordPage from './pages/ChangePasswordPage'
-import { AdminDashboard, HodDashboard, TeacherDashboard } from './pages/DashboardPage'
+import { FullScreenLoader } from './components/FullScreen'
 import LoginPage from './pages/LoginPage'
-import NotFoundPage from './pages/NotFoundPage'
-import PlaceholderPage from './pages/PlaceholderPage'
+
+// Loaded only when needed, so the first screen (the login) arrives quickly.
+const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
+const AdminDashboard = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.AdminDashboard })))
+const HodDashboard = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.HodDashboard })))
+const TeacherDashboard = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.TeacherDashboard })))
 
 // The Phase 1 screens. Each one is loaded only when it is opened, so the first page appears quickly.
 const SCREENS: Record<ScreenKey, ComponentType> = {
@@ -45,12 +49,11 @@ const SCREENS: Record<ScreenKey, ComponentType> = {
 // the weekly grid editor of one draft (a sub-page of "Generate Timetable")
 const DraftEditor = lazy(() => import('./pages/DraftEditorPage'))
 
-function screenFor(item: { screen?: ScreenKey; live?: boolean }, Dashboard: ComponentType): ComponentType {
-  if (item.screen) return SCREENS[item.screen]
-  return item.live ? Dashboard : PlaceholderPage
+function screenFor(item: { screen?: ScreenKey }, Dashboard: ComponentType): ComponentType {
+  return item.screen ? SCREENS[item.screen] : Dashboard
 }
 
-/** One signed-in area per role. Menu items of Section 6 are real screens, a dashboard, or a placeholder for a later phase. */
+/** One signed-in area per role. Every menu item of Section 6 is a real screen (or the dashboard of that role). */
 function roleBranch(role: Role, Dashboard: ComponentType) {
   const prefix = ROLE_PREFIX[role]
   const relative = (path: string) => path.slice(prefix.length + 1)
@@ -114,6 +117,7 @@ function MyRedirect() {
 export default function App() {
   return (
     <>
+      <Suspense fallback={<FullScreenLoader />}>
       <Routes>
         <Route path="/" element={<RoleRedirect />} />
         <Route
@@ -161,6 +165,7 @@ export default function App() {
         {roleBranch('teacher', TeacherDashboard)}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </Suspense>
       <CookieBanner />
     </>
   )

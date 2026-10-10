@@ -30,11 +30,17 @@ where p.id = $1
 
 
 def client_ip(request: Request) -> str:
+    """The address used for the per-computer login limit.
+
+    X-Forwarded-For is written by whoever sends the request, so it is only believed when the app really sits behind OUR
+    reverse proxy (TRUST_PROXY_HEADERS=true) - and then only its LAST entry, the address our proxy itself saw. Taking the
+    first entry (or trusting it on every local request) let anyone dodge the limit by making up a new address each time.
+    """
     host = request.client.host if request.client else "unknown"
-    if host in ("127.0.0.1", "::1"):  # behind the local dev proxy -> trust its forwarded address
-        forwarded = request.headers.get("x-forwarded-for", "")
+    if get_settings().trust_proxy_headers:
+        forwarded = [x.strip() for x in request.headers.get("x-forwarded-for", "").split(",") if x.strip()]
         if forwarded:
-            return forwarded.split(",")[0].strip()[:64]
+            return forwarded[-1][:64]
     return host
 
 
@@ -113,6 +119,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             remember_me=body.remember_me,
             ip=ip,
             user_agent=request.headers.get("user-agent"),
+            refresh_token=tokens["refresh_token"],
         )
     except Exception:
         try:
@@ -172,6 +179,15 @@ async def refresh(request: Request, response: Response) -> AuthResponse:
             403, "ACCOUNT_DISABLED", "This account has been deactivated. Please contact your administrator.",
             clear_session_cookie=True,
         )
+
+    # Reuse detection: only the NEWEST login cookie may be used (the previous one for a few seconds, for two tabs at once).
+    # An older one turning up means someone else has a copy of the cookie -> the whole session ends.
+    verdict = sessions.refresh_verdict(dict(row), refresh_token, sessions.now_utc())
+    if verdict == "stolen":
+        log.warning("An old login cookie was used again - session ended for safety (user %s)", row["user_id"])
+        await sessions.revoke(claims.session_id, "refresh_reuse")
+        raise ApiError(401, "INVALID_SESSION", "Your session has ended. Please sign in again.", clear_session_cookie=True)
+    await sessions.rotate(claims.session_id, tokens["refresh_token"])
 
     # NOTE: refreshing is NOT user activity (it can happen in the background), so it does not reset the idle clock.
     sessions.set_cookie(response, settings, tokens["refresh_token"], row["remember_me"])

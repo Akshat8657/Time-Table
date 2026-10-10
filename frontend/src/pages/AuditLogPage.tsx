@@ -139,7 +139,6 @@ export default function AuditLogPage() {
       <PageHeader
         title="Audit Log"
         subtitle="A record of every important change in TimeTablePro - who did it, what they did and when. Entries cannot be edited or removed. Only the administrator can read this page."
-        badge="Phase 6"
       />
       <Panel title="Find entries" icon={Search}
         action={filtered ? <Button size="sm" variant="ghost" icon={<FilterX className="size-4" />} onClick={clear} data-testid="audit-clear">Clear filters</Button> : null}

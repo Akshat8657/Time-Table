@@ -217,7 +217,6 @@ export default function DraftsPage() {
       <PageHeader
         title="Timetable Drafts"
         subtitle="Every class can have several named drafts. Open one to place subjects on the weekly grid - drag and drop or click, with live clash checks. Drafts are private: teachers see nothing until you publish the primary drafts (Publish screen)."
-        badge="Phase 2"
       />
       <SchoolBar>
         <Link to={`${prefix}/conflicts`}>

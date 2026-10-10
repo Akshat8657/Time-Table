@@ -5,7 +5,7 @@ from typing import Any
 
 import asyncpg
 
-from .. import db
+from .. import db, readcache
 from ..errors import ApiError
 
 
@@ -29,7 +29,7 @@ def term_out(row: asyncpg.Record | dict[str, Any]) -> dict[str, Any]:
 
 
 async def active_term() -> asyncpg.Record | None:
-    return await db.fetchrow("select * from public.academic_terms where is_active")
+    return await readcache.cached(("active_term",), lambda: db.fetchrow("select * from public.academic_terms where is_active"))
 
 
 async def require_active_term() -> asyncpg.Record:
